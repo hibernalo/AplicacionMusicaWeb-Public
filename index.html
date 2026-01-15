@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplicación de Música</title>
+    <link rel="icon" type="image/png" href="images/favicon-32x32.png">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <img src="images/logo.png" alt="Logo" class="logo-image easter-egg-trigger" id="logoTrigger" style="cursor: pointer;">
+                
+            </div>
+            <nav class="sidebar-nav">
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="#" class="nav-link active" id="navInicio">
+                            <span class="nav-icon">🏠</span>
+                            <span class="nav-text">Inicio</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link" id="navRecent">
+                            <span class="nav-icon">🆕</span>
+                            <span class="nav-text">Añadidos recientemente</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link filter-link" data-filter="liked" id="navLiked">
+                            <span class="nav-icon">❤️</span>
+                            <span class="nav-text">Favoritas</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link filter-link" data-filter="genre" id="navGenre">
+                            <span class="nav-icon">🎵</span>
+                            <span class="nav-text">Género</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link filter-link" data-filter="artist" id="navArtist">
+                            <span class="nav-icon">👤</span>
+                            <span class="nav-text">Artista</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link filter-link" data-filter="album" id="navAlbum">
+                            <span class="nav-icon">💿</span>
+                            <span class="nav-text">Álbum</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link filter-link" data-filter="year" id="navYear">
+                            <span class="nav-icon">📅</span>
+                            <span class="nav-text">Año</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link filter-link" data-filter="playlist" id="navPlaylist">
+                            <span class="nav-icon">📋</span>
+                            <span class="nav-text">Playlists</span>
+                        </a>
+                    </li>
+                    <li class="nav-item nav-item-expandable">
+                        <a href="#" class="nav-link" id="navSource">
+                            <span class="nav-icon">📁</span>
+                            <span class="nav-text">Source</span>
+                            <span class="nav-expand-icon">▶</span>
+                        </a>
+                        <ul class="nav-submenu" id="sourceGenresMenu" style="display: none;">
+                            <!-- Los géneros se cargarán aquí dinámicamente -->
+                        </ul>
+                        <div class="nav-submenu-divider"></div>
+                    </li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="main-wrapper">
+            <!-- Header -->
+            <header class="header">
+                <div class="search-container">
+                    <div class="search-box">
+                        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                        </svg>
+                        <input type="text" 
+                               class="search-input" 
+                               id="searchInput" 
+                               placeholder="Buscar canciones..."
+                               autocomplete="off">
+                        <button class="search-clear" id="searchClear" style="display: none;" title="Limpiar búsqueda">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="loading-indicator" id="loadingIndicator" style="display: none;">
+                    <span>Cargando canciones...</span>
+                </div>
+                <!-- Volume Control (Right) -->
+                <div class="header-volume-control">
+                    <!-- Song Counter -->
+                    <div class="song-counter" id="songCounter">
+                        <span>0 canciones</span>
+                    </div>
+                    <div class="volume-control">
+                        <button class="control-btn" id="muteBtn" title="Silenciar">
+                            <svg class="volume-high" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                            </svg>
+                            <svg class="volume-mute" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                            </svg>
+                        </button>
+                        <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="70">
+                    </div>
+                    <!-- View Mode Button -->
+                    <div class="view-mode-container">
+                        <button class="view-mode-btn" id="viewModeBtn" title="Opciones de vista">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                            </svg>
+                        </button>
+                        <div class="view-mode-dropdown" id="viewModeDropdown" style="display: none;">
+                            <button class="view-mode-option" data-view="default">
+                                <span>Vista por defecto</span>
+                                <svg class="view-mode-check" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </button>
+                            <button class="view-mode-option" data-view="list">
+                                <span>Vista de lista</span>
+                                <svg class="view-mode-check" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Song List -->
+                <section class="song-list-container">
+                    <div class="song-list" id="songList">
+                        <!-- Las canciones se cargarán aquí dinámicamente -->
+                    </div>
+                    <div class="load-more-indicator" id="loadMoreIndicator" style="display: none;">
+                        <span>Cargando más canciones...</span>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Audio Player (Fixed at bottom) -->
+        <footer class="audio-player-container" id="audioPlayerContainer">
+            <!-- Current Song Info -->
+            <div class="player-left">
+                <div class="current-song-info">
+                    <img class="current-cover" id="currentCover" src="" alt="Cover" style="display: none;">
+                    <div class="song-details">
+                        <div class="song-title" id="currentTitle">Selecciona una canción</div>
+                        <div class="song-artist" id="currentArtist"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Player Controls (Center) -->
+            <div class="player-center">
+                <div class="player-controls">
+                    <div class="filter-control-group">
+                        <select class="filter-select" id="genreSelect" title="Seleccionar género">
+                            <option value="">Género</option>
+                        </select>
+                    </div>
+                    <button class="control-btn shuffle-btn" id="shuffleBtn" title="Aleatorio">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+                        </svg>
+                    </button>
+                    <button class="control-btn" id="prevBtn" title="Anterior">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                        </svg>
+                    </button>
+                    <button class="control-btn play-pause-btn" id="playPauseBtn" title="Reproducir/Pausar">
+                        <svg class="play-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <svg class="pause-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 4h4v16H6zm8 0h4v16h-4z"/>
+                        </svg>
+                    </button>
+                    <button class="control-btn" id="nextBtn" title="Siguiente">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                        </svg>
+                    </button>
+                    <button class="control-btn repeat-btn" id="repeatBtn" title="Repetir">
+                        <svg class="repeat-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+                        </svg>
+                        <svg class="repeat-one-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                            <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+                            <text x="12" y="16" text-anchor="middle" font-size="8" font-weight="bold" fill="currentColor">1</text>
+                        </svg>
+                    </button>
+                    <div class="filter-control-group">
+                        <select class="filter-select" id="sourceSelect" title="Seleccionar source" disabled>
+                            <option value="">Source</option>
+                            <option value="__add__">➕ Agregar source</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <span class="time-display" id="currentTime">0:00</span>
+                    <div class="progress-bar-wrapper">
+                        <input type="range" class="progress-bar" id="progressBar" min="0" max="100" value="0">
+                    </div>
+                    <span class="time-display" id="totalTime">0:00</span>
+                </div>
+            </div>
+
+            <!-- Song Info Buttons (Right) -->
+            <div class="player-right">
+                <div class="song-info-buttons-container" id="songInfoButtonsContainer" style="display: none;">
+                    <img id="specialSongImage" class="special-song-image" style="display: none;" alt="Special Song">
+                    <button class="control-btn add-to-playlist-btn" id="addToPlaylistBtn" title="Añadir a playlist">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                        </svg>
+                    </button>
+                    <button class="liked-btn-inline-right" id="infoBtnLikedRight" title="Marcar como favorita">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                    </button>
+                    <div class="song-info-buttons-column">
+                        <button class="info-btn" data-filter="genre" id="infoBtnGenre" title="Buscar por género">
+                            <span class="info-btn-label">Género:</span>
+                            <span class="info-btn-value" id="infoValueGenre">-</span>
+                        </button>
+                        <button class="info-btn" data-filter="source" id="infoBtnSource" title="Buscar por source">
+                            <span class="info-btn-label">Source:</span>
+                            <span class="info-btn-value" id="infoValueSource">-</span>
+                        </button>
+                        <button class="info-btn" data-filter="artist" id="infoBtnArtist" title="Buscar por artista">
+                            <span class="info-btn-label">Artista:</span>
+                            <span class="info-btn-value" id="infoValueArtist">-</span>
+                        </button>
+                    </div>
+                    <div class="song-info-buttons-column">
+                        <button class="info-btn" data-filter="album" id="infoBtnAlbum" title="Buscar por álbum">
+                            <span class="info-btn-label">Álbum:</span>
+                            <span class="info-btn-value" id="infoValueAlbum">-</span>
+                        </button>
+                        <button class="info-btn" data-filter="year" id="infoBtnYear" title="Buscar por año">
+                            <span class="info-btn-label">Año:</span>
+                            <span class="info-btn-value" id="infoValueYear">-</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        <!-- Hidden Audio Element -->
+        <audio id="audioElement" preload="none"></audio>
+    </footer>
+
+    <!-- Easter Egg Modal -->
+    <div class="easter-egg-modal" id="easterEggModal" style="display: none;">
+        <div class="easter-egg-content">
+            <button class="easter-egg-close" id="easterEggClose">&times;</button>
+            <div class="easter-egg-title">El primero en hacer sonar la cancion del viento se gana 5 euros busca pistas en las canciones :D (kizver a sido el primero y el muy cabron lo ha hecho sin querer😭 🙏)</div>
+            <div class="easter-egg-buttons">
+                <div class="easter-egg-button-group">
+                    <button class="easter-egg-button" id="easterButton1" data-index="0">
+                        <div class="easter-egg-button-placeholder">
+                            <div class="easter-egg-diamond"></div>
+                            <span class="easter-egg-question">?</span>
+                        </div>
+                    </button>
+                    <div class="easter-egg-image-selector" id="selector1" style="display: none;">
+                        <div class="easter-egg-images-grid">
+                            <img src="images/Baton_U-removebg-preview.png" alt="Baton U" data-image="U" class="easter-egg-select-image">
+                            <img src="images/Baton_R__1_-removebg-preview.png" alt="Baton R" data-image="R" class="easter-egg-select-image">
+                            <img src="images/Baton_N-removebg-preview.png" alt="Baton N" data-image="N" class="easter-egg-select-image">
+                            <img src="images/Baton_L-removebg-preview.png" alt="Baton L" data-image="L" class="easter-egg-select-image">
+                            <img src="images/Baton_D-removebg-preview.png" alt="Baton D" data-image="D" class="easter-egg-select-image">
+                        </div>
+                    </div>
+                </div>
+                <div class="easter-egg-button-group">
+                    <button class="easter-egg-button" id="easterButton2" data-index="1">
+                        <div class="easter-egg-button-placeholder">
+                            <div class="easter-egg-diamond"></div>
+                            <span class="easter-egg-question">?</span>
+                        </div>
+                    </button>
+                    <div class="easter-egg-image-selector" id="selector2" style="display: none;">
+                        <div class="easter-egg-images-grid">
+                            <img src="images/Baton_U-removebg-preview.png" alt="Baton U" data-image="U" class="easter-egg-select-image">
+                            <img src="images/Baton_R__1_-removebg-preview.png" alt="Baton R" data-image="R" class="easter-egg-select-image">
+                            <img src="images/Baton_N-removebg-preview.png" alt="Baton N" data-image="N" class="easter-egg-select-image">
+                            <img src="images/Baton_L-removebg-preview.png" alt="Baton L" data-image="L" class="easter-egg-select-image">
+                            <img src="images/Baton_D-removebg-preview.png" alt="Baton D" data-image="D" class="easter-egg-select-image">
+                        </div>
+                    </div>
+                </div>
+                <div class="easter-egg-button-group">
+                    <button class="easter-egg-button" id="easterButton3" data-index="2">
+                        <div class="easter-egg-button-placeholder">
+                            <div class="easter-egg-diamond"></div>
+                            <span class="easter-egg-question">?</span>
+                        </div>
+                    </button>
+                    <div class="easter-egg-image-selector" id="selector3" style="display: none;">
+                        <div class="easter-egg-images-grid">
+                            <img src="images/Baton_U-removebg-preview.png" alt="Baton U" data-image="U" class="easter-egg-select-image">
+                            <img src="images/Baton_R__1_-removebg-preview.png" alt="Baton R" data-image="R" class="easter-egg-select-image">
+                            <img src="images/Baton_N-removebg-preview.png" alt="Baton N" data-image="N" class="easter-egg-select-image">
+                            <img src="images/Baton_L-removebg-preview.png" alt="Baton L" data-image="L" class="easter-egg-select-image">
+                            <img src="images/Baton_D-removebg-preview.png" alt="Baton D" data-image="D" class="easter-egg-select-image">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="easter-egg-success" id="easterEggSuccess" style="display: none;">
+                <img src="images/95a4bc92267af2e378a37cbf20f51795-removebg-preview.png" alt="¡Enhorabuena!" class="easter-egg-success-image">
+                <div class="easter-egg-success-text">Sybau 🥀🥀🥀</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <!-- Firebase SDK (compat mode - debe cargarse sin type="module") -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+
+    <!-- Application Scripts -->
+    <script type="module" src="js/firebase-config.js"></script>
+    <script type="module" src="js/storage-service.js"></script>
+    <script type="module" src="js/firestore-service.js"></script>
+    <script type="module" src="js/audio-player.js"></script>
+    <script type="module" src="js/song-list.js"></script>
+    <script type="module" src="js/ui-manager.js"></script>
+    <script type="module" src="js/easter-egg.js"></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
