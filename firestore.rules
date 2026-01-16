@@ -43,8 +43,8 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Anos: lectura publica, escritura solo admin
-    match /años/{yearId} {
+    // Years: lectura publica, escritura solo admin
+    match /years/{yearId} {
       allow read: if true;
       allow write: if isAdmin();
     }

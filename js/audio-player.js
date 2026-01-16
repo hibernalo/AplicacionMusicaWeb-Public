@@ -935,13 +935,21 @@ class AudioPlayer {
         } else if (this.repeatMode === 'all') {
             // Repetir toda la lista
             this.playNext();
+        } else if (this.isShuffle) {
+            // En modo shuffle: siempre continuar (playNext reinicia la cola si está vacía)
+            this.playNext();
         } else {
-            // Reproducir siguiente o detener
+            // Modo normal sin repeat
             if (this.currentIndex < this.songList.length - 1) {
+                // Hay más canciones, reproducir siguiente
                 this.playNext();
             } else {
-                this.pause();
-                this.audioElement.currentTime = 0;
+                // Llegamos al final: volver a la primera canción
+                this.currentIndex = 0;
+                const firstSong = this.songList[0];
+                if (firstSong) {
+                    this.playSong(firstSong, 0);
+                }
             }
         }
     }

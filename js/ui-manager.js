@@ -20,6 +20,9 @@ class UIManager {
         this.viewMode = 'default'; // 'default' o 'list'
         this.totalSongsCount = 0; // Total de canciones disponibles
         this.currentContext = 'all'; // 'all', 'recent', 'filtered', 'search'
+        this.currentFilterType = null; // Tipo de filtro actual ('playlist', 'genre', etc.)
+        this.currentFilterValue = null; // Valor del filtro actual (nombre de playlist, etc.)
+        this.currentPlaylistId = null; // ID del documento de la playlist actual (para operaciones CRUD)
 
         this.initializeIntersectionObserver();
         this.attachEventListeners();
@@ -65,7 +68,12 @@ class UIManager {
         // Escuchar cuando se cargan canciones
         document.addEventListener('songsLoaded', (e) => {
             console.log(`songsLoaded evento recibido: ${e.detail.songs.length} canciones, isInitial: ${e.detail.isInitial}`);
-            
+
+            // Guardar el filtro actual para saber si estamos en una playlist
+            this.currentFilterType = e.detail.filterType || null;
+            this.currentFilterValue = e.detail.filterValue || null;
+            this.currentPlaylistId = e.detail.playlistId || null;
+
             // IMPORTANTE: Verificar si estamos mostrando items de filtro (artistas, sources, etc.)
             // Si el contenedor tiene cards de filtro Y estamos cargando canciones iniciales,
             // limpiar primero las cards de filtro antes de renderizar
@@ -505,6 +513,29 @@ class UIManager {
         card.appendChild(songInfo);
         card.appendChild(addToPlaylistBtn);
 
+        // Boton para eliminar de playlist (solo visible cuando estamos en una playlist)
+        if (this.currentFilterType === 'playlist' && this.currentFilterValue) {
+            const removeFromPlaylistBtn = document.createElement('button');
+            removeFromPlaylistBtn.className = 'song-card-remove-btn';
+            removeFromPlaylistBtn.title = 'Quitar de playlist';
+            removeFromPlaylistBtn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 13H5v-2h14v2z"/>
+                </svg>
+            `;
+            removeFromPlaylistBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const event = new CustomEvent('removeSongFromPlaylist', {
+                    detail: {
+                        song,
+                        playlistId: this.currentPlaylistId
+                    }
+                });
+                document.dispatchEvent(event);
+            });
+            card.appendChild(removeFromPlaylistBtn);
+        }
+
         // Event listener para reproducir canción
         card.addEventListener('click', () => {
             this.onSongClick(song);
@@ -618,6 +649,29 @@ class UIManager {
         card.appendChild(songInfo);
         card.appendChild(listInfo);
         card.appendChild(addToPlaylistBtn);
+
+        // Boton para eliminar de playlist (solo visible cuando estamos en una playlist)
+        if (this.currentFilterType === 'playlist' && this.currentFilterValue) {
+            const removeFromPlaylistBtn = document.createElement('button');
+            removeFromPlaylistBtn.className = 'song-card-remove-btn';
+            removeFromPlaylistBtn.title = 'Quitar de playlist';
+            removeFromPlaylistBtn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 13H5v-2h14v2z"/>
+                </svg>
+            `;
+            removeFromPlaylistBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const event = new CustomEvent('removeSongFromPlaylist', {
+                    detail: {
+                        song,
+                        playlistId: this.currentPlaylistId
+                    }
+                });
+                document.dispatchEvent(event);
+            });
+            card.appendChild(removeFromPlaylistBtn);
+        }
 
         // Event listener para reproducir canción
         card.addEventListener('click', () => {
@@ -1077,10 +1131,11 @@ class UIManager {
                 detail: {
                     filterType: filterType,
                     filterValue: item.key, // Nombre del source, género, o playlist
+                    filterItemId: item.id || null, // ID del documento (para playlists)
                     count: item.count || 0 // Número de canciones en este filtro
                 }
             });
-            console.log(`createFilterItemCard: Disparando evento filterItemSelected con filterType=${filterType}, filterValue=${item.key}, count=${item.count || 0}`);
+            console.log(`createFilterItemCard: Disparando evento filterItemSelected con filterType=${filterType}, filterValue=${item.key}, filterItemId=${item.id || null}, count=${item.count || 0}`);
             document.dispatchEvent(event);
         });
 

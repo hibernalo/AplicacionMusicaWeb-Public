@@ -396,12 +396,12 @@ class App {
 
         // Escuchar cuando se selecciona un item de filtro
         document.addEventListener('filterItemSelected', async (e) => {
-            const { filterType, filterValue, count } = e.detail;
-            
+            const { filterType, filterValue, filterItemId, count } = e.detail;
+
             // Si estamos en el contexto de Source mostrando sources, no cargar canciones automáticamente
             // Solo cargar canciones cuando se hace click en una card de source específica
             // (esto se maneja en handleFilterItemSelected)
-            await this.handleFilterItemSelected(filterType, filterValue, count);
+            await this.handleFilterItemSelected(filterType, filterValue, count, filterItemId);
         });
 
         // Escuchar cuando se selecciona un género en el selector de sources
@@ -431,6 +431,12 @@ class App {
         document.addEventListener('addSongToPlaylist', async (e) => {
             const { song } = e.detail;
             await this.handleAddSongToPlaylist(song);
+        });
+
+        // Escuchar cuando se quiere eliminar una canción de una playlist
+        document.addEventListener('removeSongFromPlaylist', async (e) => {
+            const { song, playlistId } = e.detail;
+            await this.handleRemoveSongFromPlaylist(song, playlistId);
         });
 
         // Escuchar cuando cambia el modo de vista
@@ -604,12 +610,50 @@ class App {
         try {
             await firestoreService.addSongToPlaylist(selectedPlaylist.id, song.title);
             alert(`Canción "${song.title}" añadida a la playlist "${selectedPlaylist.name}".`);
-            
-            // Recargar el menú de playlists para actualizar los conteos
-            await this.loadPlaylistsMenu();
         } catch (error) {
             console.error('Error añadiendo canción a playlist:', error);
             alert(`Error al añadir la canción a la playlist: ${error.message || 'Error desconocido'}`);
+        }
+    }
+
+    /**
+     * Maneja la eliminación de una canción de una playlist
+     * @param {Object} song - Canción a eliminar
+     * @param {string} playlistId - ID de la playlist
+     */
+    async handleRemoveSongFromPlaylist(song, playlistId) {
+        if (!song || !song.title || !playlistId) {
+            console.error('Datos incompletos para eliminar canción de playlist');
+            return;
+        }
+
+        const confirmRemove = confirm(`¿Eliminar "${song.title}" de esta playlist?`);
+        if (!confirmRemove) {
+            return;
+        }
+
+        try {
+            const userId = this.currentUser ? this.currentUser.uid : null;
+            await firestoreService.removeSongFromPlaylist(playlistId, song.title, userId);
+
+            // Eliminar la card de la canción del DOM
+            const songCard = document.querySelector(`.song-card[data-song-id="${song.id}"]`);
+            if (songCard) {
+                songCard.remove();
+            }
+
+            // Actualizar el contador de canciones
+            const currentCount = this.songListManager.allSongs.length;
+            this.uiManager.updateSongCounter(currentCount - 1);
+
+            // Eliminar la canción del array local
+            const songIndex = this.songListManager.allSongs.findIndex(s => s.id === song.id);
+            if (songIndex !== -1) {
+                this.songListManager.allSongs.splice(songIndex, 1);
+            }
+        } catch (error) {
+            console.error('Error eliminando canción de playlist:', error);
+            alert(`Error al eliminar la canción: ${error.message || 'Error desconocido'}`);
         }
     }
 
@@ -659,9 +703,10 @@ class App {
      * @param {string} filterType - Tipo de filtro
      * @param {string} filterValue - Valor del filtro seleccionado
      * @param {number} count - Número total de canciones en este filtro (opcional)
+     * @param {string} filterItemId - ID del documento (para playlists)
      */
-    async handleFilterItemSelected(filterType, filterValue, count = null) {
-        console.log(`handleFilterItemSelected: filterType=${filterType}, filterValue="${filterValue}", count=${count}`);
+    async handleFilterItemSelected(filterType, filterValue, count = null, filterItemId = null) {
+        console.log(`handleFilterItemSelected: filterType=${filterType}, filterValue="${filterValue}", count=${count}, filterItemId=${filterItemId}`);
         
         // IMPORTANTE: Limpiar las cards de filtro antes de cargar las canciones
         // Esto asegura que las canciones se rendericen correctamente
@@ -683,7 +728,7 @@ class App {
         try {
             // Cuando se selecciona un filtro, ahora el buscador debe buscar en canciones
             // del filtro seleccionado, no en items de filtro
-            const songs = await this.songListManager.loadFilteredSongs(filterType, filterValue, count);
+            const songs = await this.songListManager.loadFilteredSongs(filterType, filterValue, count, filterItemId);
             // Las canciones se renderizan automáticamente a través del evento 'songsLoaded'
             // El loading se oculta en el evento 'songsLoaded' cuando isInitial es true
             // Solo necesitamos actualizar la lista en el reproductor

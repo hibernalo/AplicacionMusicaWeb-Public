@@ -17,6 +17,7 @@ class SongListManager {
         // Estado de filtros
         this.currentFilterType = null; // 'liked', 'genre', 'source', 'artist', 'album', 'year', 'recent'
         this.currentFilterValue = null; // Valor del filtro seleccionado
+        this.currentPlaylistId = null; // ID del documento de la playlist actual
         this.filterItems = []; // Lista de items de filtro (artistas, álbumes, etc.)
         this.recentOffset = 0; // Offset para paginación de canciones recientes
     }
@@ -51,7 +52,12 @@ class SongListManager {
             this.currentPage = 1;
 
             this.isLoading = false;
-            this.dispatchEvent('songsLoaded', { songs: this.allSongs, isInitial: true });
+            this.dispatchEvent('songsLoaded', {
+                songs: this.allSongs,
+                isInitial: true,
+                filterType: null,
+                filterValue: null
+            });
 
             return this.allSongs;
         } catch (error) {
@@ -94,7 +100,9 @@ class SongListManager {
                 this.dispatchEvent('songsLoaded', {
                     songs: result.songs,
                     isInitial: false,
-                    totalSongs: this.allSongs.length
+                    totalSongs: this.allSongs.length,
+                    filterType: this.currentFilterType,
+                    filterValue: this.currentFilterValue
                 });
             } else {
                 this.hasMore = false;
@@ -325,17 +333,20 @@ class SongListManager {
      * Carga canciones filtradas
      * @param {string} filterType - Tipo de filtro
      * @param {string} filterValue - Valor del filtro
+     * @param {number} totalCount - Número total de canciones (opcional)
+     * @param {string} playlistId - ID del documento de la playlist (opcional)
      * @returns {Promise<Array>} Array de canciones filtradas
      */
-    async loadFilteredSongs(filterType, filterValue = null, totalCount = null) {
+    async loadFilteredSongs(filterType, filterValue = null, totalCount = null, playlistId = null) {
         if (this.isLoading) {
             console.log('Ya está cargando canciones, ignorando solicitud');
             return [];
         }
 
-        console.log(`loadFilteredSongs: Iniciando carga para ${filterType} = ${filterValue}, totalCount=${totalCount}`);
+        console.log(`loadFilteredSongs: Iniciando carga para ${filterType} = ${filterValue}, totalCount=${totalCount}, playlistId=${playlistId}`);
         this.currentFilterType = filterType;
         this.currentFilterValue = filterValue;
+        this.currentPlaylistId = playlistId;
         this.allSongs = [];
         this.currentPage = 0;
         this.lastDoc = null;
@@ -395,8 +406,15 @@ class SongListManager {
             this.isLoading = false;
             // Para 'liked', usar el total del resultado si está disponible, o totalCount si se pasa
             const finalTotalCount = filterType === 'liked' && result.total !== undefined ? result.total : totalCount;
-            console.log(`loadFilteredSongs: Disparando evento songsLoaded con ${this.allSongs.length} canciones, totalCount=${finalTotalCount}`);
-            this.dispatchEvent('songsLoaded', { songs: this.allSongs, isInitial: true, totalSongs: finalTotalCount });
+            console.log(`loadFilteredSongs: Disparando evento songsLoaded con ${this.allSongs.length} canciones, totalCount=${finalTotalCount}, playlistId=${this.currentPlaylistId}`);
+            this.dispatchEvent('songsLoaded', {
+                songs: this.allSongs,
+                isInitial: true,
+                totalSongs: finalTotalCount,
+                filterType: this.currentFilterType,
+                filterValue: this.currentFilterValue,
+                playlistId: this.currentPlaylistId
+            });
             return this.allSongs;
         } catch (error) {
             console.error(`Error cargando canciones filtradas ${filterType}:`, error);
@@ -438,7 +456,13 @@ class SongListManager {
 
             this.isLoading = false;
             console.log(`loadRecentSongs: Disparando evento songsLoaded con ${this.allSongs.length} canciones`);
-            this.dispatchEvent('songsLoaded', { songs: this.allSongs, isInitial: true, totalSongs: result.total || this.allSongs.length });
+            this.dispatchEvent('songsLoaded', {
+                songs: this.allSongs,
+                isInitial: true,
+                totalSongs: result.total || this.allSongs.length,
+                filterType: this.currentFilterType,
+                filterValue: this.currentFilterValue
+            });
             return this.allSongs;
         } catch (error) {
             console.error('Error cargando canciones recientes:', error);
@@ -509,7 +533,9 @@ class SongListManager {
                 this.dispatchEvent('songsLoaded', {
                     songs: result.songs,
                     isInitial: false,
-                    totalSongs: this.allSongs.length
+                    totalSongs: this.allSongs.length,
+                    filterType: this.currentFilterType,
+                    filterValue: this.currentFilterValue
                 });
             } else {
                 this.hasMore = false;
@@ -547,7 +573,9 @@ class SongListManager {
                 this.dispatchEvent('songsLoaded', {
                     songs: result.songs,
                     isInitial: false,
-                    totalSongs: this.allSongs.length
+                    totalSongs: this.allSongs.length,
+                    filterType: this.currentFilterType,
+                    filterValue: this.currentFilterValue
                 });
             } else {
                 this.hasMore = false;

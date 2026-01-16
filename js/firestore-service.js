@@ -455,7 +455,7 @@ class FirestoreService {
     async getYearsWithCounts() {
         try {
             // Obtener todos los años de la colección "años"
-            const yearsSnap = await db.collection('años').get();
+            const yearsSnap = await db.collection('years').get();
             
             // Obtener conteos de canciones por año
             const songsSnap = await db.collection('songs').get();
@@ -1375,7 +1375,7 @@ class FirestoreService {
             let yearDoc = null;
             let yearDocId = null;
             
-            const yearByField = await db.collection('años')
+            const yearByField = await db.collection('years')
                 .where('year', '==', yearTrimmed)
                 .limit(1)
                 .get();
@@ -1387,7 +1387,7 @@ class FirestoreService {
                 console.log(`Año encontrado por campo year: ${yearTrimmed}, ID: ${yearDocId}`);
             } else {
                 // Si no se encontró por campo year, intentar por ID del documento
-                yearDoc = await db.collection('años').doc(yearTrimmed).get();
+                yearDoc = await db.collection('years').doc(yearTrimmed).get();
                 if (yearDoc.exists) {
                     yearDocId = yearDoc.id;
                     console.log(`Año encontrado por ID: ${yearTrimmed}`);
@@ -1396,14 +1396,14 @@ class FirestoreService {
             
             if (yearDoc && yearDoc.exists) {
                 // Actualizar el documento existente usando su ID real
-                await db.collection('años').doc(yearDocId).update({
+                await db.collection('years').doc(yearDocId).update({
                     coverPath: coverPath || ''
                 });
                 console.log(`CoverPath actualizado para año: ${yearTrimmed} (ID: ${yearDocId})`);
             } else {
                 // Si no existe, crear el documento usando el año como ID
                 // Esto asegura consistencia para futuras actualizaciones
-                await db.collection('años').doc(yearTrimmed).set({
+                await db.collection('years').doc(yearTrimmed).set({
                     year: yearTrimmed,
                     coverPath: coverPath || ''
                 }, { merge: true }); // Usar merge para no sobrescribir otros campos si existen
@@ -1440,7 +1440,7 @@ class FirestoreService {
                     searchField = 'name';
                     break;
                 case 'year':
-                    collectionName = 'años';
+                    collectionName = 'years';
                     searchField = 'year';
                     break;
                 default:
