@@ -1,4 +1,5 @@
 import firestoreService from './firestore-service.js';
+import userLikesService from './user-likes-service.js';
 
 /**
  * Gestor de lista de canciones con paginación
@@ -346,7 +347,13 @@ class SongListManager {
             console.log(`loadFilteredSongs: Llamando a función de Firestore para ${filterType}`);
             switch (filterType) {
                 case 'liked':
-                    result = await firestoreService.getLikedSongs(this.pageSize, this.lastDoc);
+                    const userId = userLikesService.getCurrentUserId();
+                    if (!userId) {
+                        console.log('loadFilteredSongs: No hay usuario autenticado para liked');
+                        result = { songs: [], lastDoc: null, hasMore: false, total: 0 };
+                    } else {
+                        result = await firestoreService.getLikedSongs(userId, this.pageSize, this.lastDoc);
+                    }
                     break;
                 case 'artist':
                     result = await firestoreService.getSongsByArtist(filterValue, this.pageSize, this.lastDoc);
@@ -461,7 +468,12 @@ class SongListManager {
             let result;
             switch (this.currentFilterType) {
                 case 'liked':
-                    result = await firestoreService.getLikedSongs(this.pageSize, this.lastDoc);
+                    const likedUserId = userLikesService.getCurrentUserId();
+                    if (!likedUserId) {
+                        result = { songs: [], lastDoc: null, hasMore: false };
+                    } else {
+                        result = await firestoreService.getLikedSongs(likedUserId, this.pageSize, this.lastDoc);
+                    }
                     break;
                 case 'artist':
                     result = await firestoreService.getSongsByArtist(this.currentFilterValue, this.pageSize, this.lastDoc);

@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funcion helper: verificar autenticacion
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Funcion helper: verificar si es el propio usuario
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Funcion helper: verificar si es admin
+    function isAdmin() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Canciones: lectura publica, escritura solo admin
+    match /songs/{songId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Generos: lectura publica, escritura solo admin
+    match /genres/{genreId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Sources: lectura publica, escritura solo admin
+    match /sources/{sourceId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Artistas: lectura publica, escritura solo admin
+    match /artistas/{artistId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Anos: lectura publica, escritura solo admin
+    match /años/{yearId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Usuarios: solo el propio usuario puede leer/escribir su documento
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      // Solo admin puede modificar el campo isAdmin
+      allow update: if isAdmin();
+
+      // Subcoleccion de likes: solo el propio usuario
+      match /likes/{likeId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Playlists
+    match /playlists/{playlistId} {
+      // Todos pueden leer todas las playlists
+      allow read: if true;
+
+      // Crear: cualquier usuario autenticado
+      allow create: if isAuthenticated();
+
+      // Actualizar: solo el dueno o admin
+      // Playlists sin ownerId (legacy) solo pueden ser modificadas por admin
+      allow update: if isAuthenticated() &&
+        (resource.data.ownerId == request.auth.uid ||
+         (resource.data.ownerId == null && isAdmin()) ||
+         isAdmin());
+
+      // Eliminar: solo el dueno o admin
+      allow delete: if isAuthenticated() &&
+        (resource.data.ownerId == request.auth.uid ||
+         isAdmin());
+    }
+  }
+}

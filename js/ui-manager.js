@@ -1219,6 +1219,155 @@ class UIManager {
         // Ocultar progreso
         this.showUploadProgress(cardElement, false);
     }
+
+    // ========================================
+    // AUTH UI METHODS
+    // ========================================
+
+    /**
+     * Muestra la UI de usuario logueado
+     * @param {string} email - Email del usuario
+     */
+    showUserLoggedIn(email) {
+        const userAuthBtn = document.getElementById('userAuthBtn');
+        const userName = document.getElementById('userName');
+        const userDropdownEmail = document.getElementById('userDropdownEmail');
+
+        if (userAuthBtn) {
+            userAuthBtn.classList.add('logged-in');
+            userAuthBtn.title = 'Mi cuenta';
+        }
+        if (userName) {
+            userName.textContent = email.split('@')[0];
+        }
+        if (userDropdownEmail) {
+            userDropdownEmail.textContent = email;
+        }
+    }
+
+    /**
+     * Muestra la UI de usuario no logueado
+     */
+    showUserLoggedOut() {
+        const userAuthBtn = document.getElementById('userAuthBtn');
+        const userName = document.getElementById('userName');
+        const userDropdown = document.getElementById('userDropdown');
+
+        if (userAuthBtn) {
+            userAuthBtn.classList.remove('logged-in');
+            userAuthBtn.title = 'Iniciar sesion';
+        }
+        if (userName) {
+            userName.textContent = '';
+        }
+        if (userDropdown) {
+            userDropdown.style.display = 'none';
+        }
+    }
+
+    /**
+     * Muestra el modal de autenticacion
+     */
+    showAuthModal() {
+        const modal = document.getElementById('authModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            // Enfocar el primer input
+            const firstInput = modal.querySelector('input');
+            if (firstInput) {
+                setTimeout(() => firstInput.focus(), 100);
+            }
+        }
+    }
+
+    /**
+     * Oculta el modal de autenticacion
+     */
+    hideAuthModal() {
+        const modal = document.getElementById('authModal');
+        if (modal) {
+            modal.style.display = 'none';
+            // Limpiar formularios
+            const forms = modal.querySelectorAll('form');
+            forms.forEach(form => form.reset());
+            // Limpiar errores
+            const errors = modal.querySelectorAll('.auth-error');
+            errors.forEach(error => error.textContent = '');
+        }
+    }
+
+    /**
+     * Muestra un error en el formulario de login
+     * @param {string} message - Mensaje de error
+     */
+    showLoginError(message) {
+        const errorDiv = document.getElementById('loginError');
+        if (errorDiv) {
+            errorDiv.textContent = message;
+        }
+    }
+
+    /**
+     * Muestra un error en el formulario de registro
+     * @param {string} message - Mensaje de error
+     */
+    showRegisterError(message) {
+        const errorDiv = document.getElementById('registerError');
+        if (errorDiv) {
+            errorDiv.textContent = message;
+        }
+    }
+
+    /**
+     * Cambia entre tabs de login y registro
+     * @param {string} tab - 'login' o 'register'
+     */
+    switchAuthTab(tab) {
+        const tabs = document.querySelectorAll('.auth-tab');
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+
+        tabs.forEach(t => {
+            if (t.dataset.tab === tab) {
+                t.classList.add('active');
+            } else {
+                t.classList.remove('active');
+            }
+        });
+
+        if (tab === 'login') {
+            if (loginForm) loginForm.style.display = 'flex';
+            if (registerForm) registerForm.style.display = 'none';
+        } else {
+            if (loginForm) loginForm.style.display = 'none';
+            if (registerForm) registerForm.style.display = 'flex';
+        }
+
+        // Limpiar errores al cambiar de tab
+        const errors = document.querySelectorAll('.auth-error');
+        errors.forEach(error => error.textContent = '');
+    }
+
+    /**
+     * Muestra/oculta el dropdown del usuario
+     */
+    toggleUserDropdown() {
+        const dropdown = document.getElementById('userDropdown');
+        if (dropdown) {
+            const isVisible = dropdown.style.display === 'block';
+            dropdown.style.display = isVisible ? 'none' : 'block';
+        }
+    }
+
+    /**
+     * Oculta el dropdown del usuario
+     */
+    hideUserDropdown() {
+        const dropdown = document.getElementById('userDropdown');
+        if (dropdown) {
+            dropdown.style.display = 'none';
+        }
+    }
 }
 
 export default UIManager;

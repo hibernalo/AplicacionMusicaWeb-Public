@@ -13,9 +13,10 @@ const firebaseConfig = {
 // Inicializar Firebase
 firebase.initializeApp(firebaseConfig);
 
-// Obtener referencias a Firestore y Storage
+// Obtener referencias a Firestore, Storage y Auth
 const db = firebase.firestore();
 const storage = firebase.storage();
+const auth = firebase.auth();
 
 // Exportar para uso en otros módulos
-export { db, storage };
+export { db, storage, auth };

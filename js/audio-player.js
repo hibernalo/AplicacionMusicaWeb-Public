@@ -1,5 +1,6 @@
 import storageService from './storage-service.js';
 import firestoreService from './firestore-service.js';
+import userLikesService from './user-likes-service.js';
 
 /**
  * Controlador del reproductor de audio
@@ -638,8 +639,8 @@ class AudioPlayer {
             return;
         }
 
-        // Actualizar botón de liked
-        const isLiked = song.liked === true;
+        // Actualizar boton de liked (usando userLikesService)
+        const isLiked = userLikesService.isLiked(song.id);
         if (this.infoBtnLikedRight) {
             if (isLiked) {
                 this.infoBtnLikedRight.classList.add('liked');
@@ -709,21 +710,23 @@ class AudioPlayer {
     }
 
     /**
-     * Maneja el clic en el botón de liked
+     * Maneja el clic en el boton de liked
      */
     async handleLikedButtonClick() {
         if (!this.currentSong) return;
 
+        // Verificar si hay usuario autenticado
+        const userId = userLikesService.getCurrentUserId();
+        if (!userId) {
+            alert('Debes iniciar sesion para marcar canciones como favoritas');
+            return;
+        }
+
         try {
-            const newLikedValue = !this.currentSong.liked;
-            
-            // Actualizar en Firestore
-            await firestoreService.updateSongLiked(this.currentSong.id, newLikedValue);
-            
-            // Actualizar el objeto de canción local
-            this.currentSong.liked = newLikedValue;
-            
-            // Actualizar el botón visualmente
+            // Toggle like usando userLikesService
+            const newLikedValue = await userLikesService.toggleLike(this.currentSong.id);
+
+            // Actualizar el boton visualmente
             if (this.infoBtnLikedRight) {
                 if (newLikedValue) {
                     this.infoBtnLikedRight.classList.add('liked');
@@ -732,10 +735,10 @@ class AudioPlayer {
                 }
             }
 
-            console.log(`Canción ${this.currentSong.id} marcada como ${newLikedValue ? 'favorita' : 'no favorita'}`);
+            console.log(`Cancion ${this.currentSong.id} marcada como ${newLikedValue ? 'favorita' : 'no favorita'}`);
         } catch (error) {
             console.error('Error actualizando liked:', error);
-            alert('Error al actualizar la canción favorita. Por favor, intenta de nuevo.');
+            alert('Error al actualizar la cancion favorita. Por favor, intenta de nuevo.');
         }
     }
 

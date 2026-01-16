@@ -1,5 +1,7 @@
 import firestoreService from './firestore-service.js';
 import storageService from './storage-service.js';
+import authService from './auth-service.js';
+import userLikesService from './user-likes-service.js';
 import AudioPlayer from './audio-player.js';
 import SongListManager from './song-list.js';
 import UIManager from './ui-manager.js';
@@ -15,6 +17,7 @@ class App {
         this.isInitialized = false;
         this.currentNavMenu = 'inicio'; // 'inicio', 'liked', 'genre', 'source', 'artist', 'album', 'year'
         this.sourceGenreId = null; // ID del género seleccionado cuando estamos en sources
+        this.currentUser = null; // Usuario autenticado actual
     }
 
     /**
@@ -50,6 +53,13 @@ class App {
 
             // Configurar event listeners
             this.setupEventListeners();
+
+            // Inicializar autenticacion
+            this.setupAuthUI();
+            authService.init();
+            authService.onAuthStateChanged((user) => {
+                this.handleAuthStateChange(user);
+            });
 
             this.isInitialized = true;
             console.log(`Aplicación inicializada. ${initialSongs.length} canciones cargadas.`);
@@ -492,20 +502,28 @@ class App {
 
 
     /**
-     * Maneja la creación de una nueva playlist
+     * Maneja la creacion de una nueva playlist
      */
     async handleCreatePlaylist() {
+        // Verificar si hay usuario autenticado
+        if (!this.currentUser) {
+            alert('Debes iniciar sesion para crear una playlist');
+            this.uiManager.showAuthModal();
+            return;
+        }
+
         const playlistName = prompt('Ingresa el nombre de la nueva playlist:');
-        
+
         if (!playlistName || playlistName.trim() === '') {
             return;
         }
 
         try {
-            await firestoreService.createPlaylist(playlistName.trim());
+            // Pasar el ownerId del usuario actual
+            await firestoreService.createPlaylist(playlistName.trim(), this.currentUser.uid);
             alert(`Playlist "${playlistName}" creada exitosamente.`);
-            
-            // Si estamos en el menú de playlists, recargar los items
+
+            // Si estamos en el menu de playlists, recargar los items
             if (this.currentNavMenu === 'playlist') {
                 this.uiManager.showLoading();
                 const items = await this.songListManager.loadFilterItems('playlist');
@@ -858,6 +876,179 @@ class App {
             console.error(`Error subiendo imagen para ${filterType} ${itemKey}:`, error);
             alert(`Error al subir la imagen: ${error.message || 'Error desconocido'}`);
             this.uiManager.showUploadProgress(cardElement, false);
+        }
+    }
+
+    // ========================================
+    // AUTH METHODS
+    // ========================================
+
+    /**
+     * Configura la UI de autenticacion
+     */
+    setupAuthUI() {
+        const userAuthBtn = document.getElementById('userAuthBtn');
+        const userDropdown = document.getElementById('userDropdown');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const authModal = document.getElementById('authModal');
+        const authModalClose = document.getElementById('authModalClose');
+        const authModalOverlay = document.getElementById('authModalOverlay');
+        const authTabs = document.querySelectorAll('.auth-tab');
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+
+        // Click en boton de usuario
+        if (userAuthBtn) {
+            userAuthBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.currentUser) {
+                    // Usuario logueado - mostrar dropdown
+                    this.uiManager.toggleUserDropdown();
+                } else {
+                    // Usuario no logueado - mostrar modal
+                    this.uiManager.showAuthModal();
+                }
+            });
+        }
+
+        // Click en cerrar sesion
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                try {
+                    await authService.signOut();
+                    this.uiManager.hideUserDropdown();
+                } catch (error) {
+                    console.error('Error cerrando sesion:', error);
+                    alert('Error al cerrar sesion');
+                }
+            });
+        }
+
+        // Cerrar dropdown al hacer click fuera
+        document.addEventListener('click', (e) => {
+            if (userDropdown && !userDropdown.contains(e.target) && !userAuthBtn.contains(e.target)) {
+                this.uiManager.hideUserDropdown();
+            }
+        });
+
+        // Cerrar modal
+        if (authModalClose) {
+            authModalClose.addEventListener('click', () => {
+                this.uiManager.hideAuthModal();
+            });
+        }
+
+        if (authModalOverlay) {
+            authModalOverlay.addEventListener('click', () => {
+                this.uiManager.hideAuthModal();
+            });
+        }
+
+        // Cambiar tabs
+        authTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                this.uiManager.switchAuthTab(tab.dataset.tab);
+            });
+        });
+
+        // Submit login
+        if (loginForm) {
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+
+                try {
+                    const submitBtn = loginForm.querySelector('.auth-submit-btn');
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Iniciando...';
+
+                    await authService.signIn(email, password);
+                    this.uiManager.hideAuthModal();
+                } catch (error) {
+                    this.uiManager.showLoginError(error.message);
+                } finally {
+                    const submitBtn = loginForm.querySelector('.auth-submit-btn');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Iniciar Sesion';
+                }
+            });
+        }
+
+        // Submit registro
+        if (registerForm) {
+            registerForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('registerEmail').value;
+                const password = document.getElementById('registerPassword').value;
+                const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+
+                // Validaciones
+                if (!authService.validateEmail(email)) {
+                    this.uiManager.showRegisterError('El correo electronico no es valido');
+                    return;
+                }
+
+                if (!authService.validatePassword(password)) {
+                    this.uiManager.showRegisterError('La contrasena debe tener al menos 6 caracteres');
+                    return;
+                }
+
+                if (password !== passwordConfirm) {
+                    this.uiManager.showRegisterError('Las contrasenas no coinciden');
+                    return;
+                }
+
+                try {
+                    const submitBtn = registerForm.querySelector('.auth-submit-btn');
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Creando cuenta...';
+
+                    await authService.signUp(email, password);
+                    this.uiManager.hideAuthModal();
+                } catch (error) {
+                    this.uiManager.showRegisterError(error.message);
+                } finally {
+                    const submitBtn = registerForm.querySelector('.auth-submit-btn');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Crear cuenta';
+                }
+            });
+        }
+
+        // Cerrar modal con Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && authModal && authModal.style.display !== 'none') {
+                this.uiManager.hideAuthModal();
+            }
+        });
+    }
+
+    /**
+     * Maneja cambios en el estado de autenticacion
+     * @param {firebase.User|null} user
+     */
+    handleAuthStateChange(user) {
+        this.currentUser = user;
+
+        if (user) {
+            console.log('Usuario autenticado:', user.email);
+            this.uiManager.showUserLoggedIn(user.email);
+            userLikesService.setUserId(user.uid);
+
+            // Si estamos en "Favoritas", recargar con likes del usuario
+            if (this.currentNavMenu === 'liked') {
+                this.handleFilterClick('liked');
+            }
+        } else {
+            console.log('Usuario no autenticado');
+            this.uiManager.showUserLoggedOut();
+            userLikesService.setUserId(null);
+
+            // Si estamos en "Favoritas" y el usuario cierra sesion, volver a inicio
+            if (this.currentNavMenu === 'liked') {
+                this.handleNavigation('inicio');
+            }
         }
     }
 }

@@ -143,6 +143,24 @@
                             </button>
                         </div>
                     </div>
+                    <!-- User Auth Button -->
+                    <div class="user-auth-container">
+                        <button class="user-auth-btn" id="userAuthBtn" title="Iniciar sesion">
+                            <svg class="user-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                            </svg>
+                            <span class="user-name" id="userName"></span>
+                        </button>
+                        <div class="user-dropdown" id="userDropdown" style="display: none;">
+                            <div class="user-dropdown-email" id="userDropdownEmail"></div>
+                            <button class="user-dropdown-btn" id="logoutBtn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+                                </svg>
+                                Cerrar sesion
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </header>
 
@@ -338,15 +356,59 @@
             </div>
         </div>
     </div>
+
+    <!-- Auth Modal -->
+    <div class="auth-modal" id="authModal" style="display: none;">
+        <div class="auth-modal-overlay" id="authModalOverlay"></div>
+        <div class="auth-modal-content">
+            <button class="auth-modal-close" id="authModalClose">&times;</button>
+            <h2 class="auth-modal-title">Bienvenido</h2>
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login">Iniciar Sesion</button>
+                <button class="auth-tab" data-tab="register">Registrarse</button>
+            </div>
+            <form id="loginForm" class="auth-form">
+                <div class="auth-input-group">
+                    <label for="loginEmail">Correo electronico</label>
+                    <input type="email" id="loginEmail" placeholder="tu@email.com" required>
+                </div>
+                <div class="auth-input-group">
+                    <label for="loginPassword">Contrasena</label>
+                    <input type="password" id="loginPassword" placeholder="Tu contrasena" required>
+                </div>
+                <div class="auth-error" id="loginError"></div>
+                <button type="submit" class="auth-submit-btn">Iniciar Sesion</button>
+            </form>
+            <form id="registerForm" class="auth-form" style="display: none;">
+                <div class="auth-input-group">
+                    <label for="registerEmail">Correo electronico</label>
+                    <input type="email" id="registerEmail" placeholder="tu@email.com" required>
+                </div>
+                <div class="auth-input-group">
+                    <label for="registerPassword">Contrasena</label>
+                    <input type="password" id="registerPassword" placeholder="Minimo 6 caracteres" required>
+                </div>
+                <div class="auth-input-group">
+                    <label for="registerPasswordConfirm">Confirmar contrasena</label>
+                    <input type="password" id="registerPasswordConfirm" placeholder="Repite tu contrasena" required>
+                </div>
+                <div class="auth-error" id="registerError"></div>
+                <button type="submit" class="auth-submit-btn">Crear cuenta</button>
+            </form>
+        </div>
+    </div>
 </div>
 
     <!-- Firebase SDK (compat mode - debe cargarse sin type="module") -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
     <!-- Application Scripts -->
     <script type="module" src="js/firebase-config.js"></script>
+    <script type="module" src="js/auth-service.js"></script>
+    <script type="module" src="js/user-likes-service.js"></script>
     <script type="module" src="js/storage-service.js"></script>
     <script type="module" src="js/firestore-service.js"></script>
     <script type="module" src="js/audio-player.js"></script>

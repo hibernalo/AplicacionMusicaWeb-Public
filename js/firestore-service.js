@@ -841,49 +841,73 @@ class FirestoreService {
     }
 
     /**
-     * Obtiene canciones favoritas (liked = true) (paginadas)
-     * @param {number} limit - Límite de canciones (default: 50)
-     * @param {Object} lastDoc - Último documento para paginación
+     * Obtiene canciones favoritas del usuario (desde subcoleccion users/{userId}/likes)
+     * @param {string} userId - ID del usuario
+     * @param {number} limit - Limite de canciones (default: 50)
+     * @param {Object} lastDoc - Ultimo documento para paginacion
      * @returns {Promise<{songs: Array, lastDoc: Object|null, hasMore: boolean, total?: number}>}
      */
-    async getLikedSongs(limit = 50, lastDoc = null) {
+    async getLikedSongs(userId, limit = 50, lastDoc = null) {
         try {
-            // Si es la primera carga (lastDoc es null), obtener el total primero
-            let totalLikedSongs = null;
-            if (lastDoc === null) {
-                const allLikedSnapshot = await db.collection('songs').where('liked', '==', true).get();
-                totalLikedSongs = allLikedSnapshot.docs.length;
+            // Si no hay usuario, retornar vacio
+            if (!userId) {
+                return { songs: [], lastDoc: null, hasMore: false, total: 0 };
             }
 
-            let query = db.collection('songs').where('liked', '==', true);
+            // Obtener IDs de canciones liked del usuario
+            const likesRef = db.collection('users').doc(userId).collection('likes');
+            const likesSnapshot = await likesRef.orderBy('likedAt', 'desc').get();
 
-            query = query.limit(limit);
-
-            if (lastDoc) {
-                query = query.startAfter(lastDoc);
+            if (likesSnapshot.empty) {
+                return { songs: [], lastDoc: null, hasMore: false, total: 0 };
             }
 
-            const snapshot = await query.get();
-            const songs = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+            const likedSongIds = likesSnapshot.docs.map(doc => doc.id);
+            const totalLikedSongs = likedSongIds.length;
 
-            const newLastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-            const hasMore = snapshot.docs.length === limit;
+            // Calcular paginacion manual
+            const startIndex = lastDoc ? lastDoc.index + 1 : 0;
+            const endIndex = Math.min(startIndex + limit, likedSongIds.length);
+            const pageIds = likedSongIds.slice(startIndex, endIndex);
 
-            const result = {
-                songs,
+            if (pageIds.length === 0) {
+                return { songs: [], lastDoc: null, hasMore: false, total: totalLikedSongs };
+            }
+
+            // Obtener datos de canciones (Firestore limite de 10 para whereIn)
+            const songs = [];
+            const chunks = [];
+            for (let i = 0; i < pageIds.length; i += 10) {
+                chunks.push(pageIds.slice(i, i + 10));
+            }
+
+            for (const chunk of chunks) {
+                const songsSnapshot = await db.collection('songs')
+                    .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
+                    .get();
+
+                songsSnapshot.docs.forEach(doc => {
+                    songs.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+            }
+
+            // Ordenar canciones en el mismo orden que los IDs liked
+            const orderedSongs = pageIds
+                .map(id => songs.find(s => s.id === id))
+                .filter(s => s !== undefined);
+
+            const hasMore = endIndex < likedSongIds.length;
+            const newLastDoc = hasMore ? { index: endIndex - 1 } : null;
+
+            return {
+                songs: orderedSongs,
                 lastDoc: newLastDoc,
-                hasMore
+                hasMore,
+                total: totalLikedSongs
             };
-
-            // Agregar total solo en la primera carga
-            if (totalLikedSongs !== null) {
-                result.total = totalLikedSongs;
-            }
-
-            return result;
         } catch (error) {
             console.error('Error obteniendo canciones favoritas:', error);
             throw error;
@@ -1451,24 +1475,25 @@ class FirestoreService {
     }
 
     /**
-     * Crea una nueva playlist en la colección playlists
+     * Crea una nueva playlist en la coleccion playlists
      * @param {string} name - Nombre de la playlist
+     * @param {string|null} ownerId - ID del usuario propietario (null para playlists publicas)
      * @returns {Promise<string>} ID del documento creado
      */
-    async createPlaylist(name) {
+    async createPlaylist(name, ownerId = null) {
         try {
             if (!name || name.trim() === '') {
-                throw new Error('El nombre de la playlist no puede estar vacío');
+                throw new Error('El nombre de la playlist no puede estar vacio');
             }
 
             const playlistName = name.trim();
-            
+
             // Verificar si ya existe una playlist con ese nombre
             const existingPlaylist = await db.collection('playlists')
                 .where('name', '==', playlistName)
                 .limit(1)
                 .get();
-            
+
             if (!existingPlaylist.empty) {
                 throw new Error('Ya existe una playlist con ese nombre');
             }
@@ -1476,11 +1501,14 @@ class FirestoreService {
             // Crear el documento de la playlist
             const playlistData = {
                 name: playlistName,
-                songs: [] // Array vacío inicialmente
+                songs: [],
+                ownerId: ownerId,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                isPublic: true
             };
 
             const docRef = await db.collection('playlists').add(playlistData);
-            console.log(`Playlist creada: ${playlistName} con ID: ${docRef.id}`);
+            console.log(`Playlist creada: ${playlistName} con ID: ${docRef.id}, owner: ${ownerId}`);
             return docRef.id;
         } catch (error) {
             console.error('Error creando playlist:', error);
@@ -1489,8 +1517,132 @@ class FirestoreService {
     }
 
     /**
+     * Verifica si un usuario es propietario de una playlist
+     * @param {string} playlistId - ID de la playlist
+     * @param {string} userId - ID del usuario
+     * @returns {Promise<boolean>}
+     */
+    async isPlaylistOwner(playlistId, userId) {
+        try {
+            if (!playlistId || !userId) return false;
+
+            const doc = await db.collection('playlists').doc(playlistId).get();
+            if (!doc.exists) return false;
+
+            const data = doc.data();
+            return data.ownerId === userId;
+        } catch (error) {
+            console.error('Error verificando propietario de playlist:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Obtiene una playlist por su ID
+     * @param {string} playlistId - ID de la playlist
+     * @returns {Promise<Object|null>}
+     */
+    async getPlaylistById(playlistId) {
+        try {
+            const doc = await db.collection('playlists').doc(playlistId).get();
+            if (!doc.exists) return null;
+
+            return {
+                id: doc.id,
+                ...doc.data()
+            };
+        } catch (error) {
+            console.error('Error obteniendo playlist:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Elimina una playlist (solo si el usuario es propietario)
+     * @param {string} playlistId - ID de la playlist
+     * @param {string} userId - ID del usuario que intenta eliminar
+     * @returns {Promise<boolean>}
+     */
+    async deletePlaylist(playlistId, userId) {
+        try {
+            if (!playlistId || !userId) {
+                throw new Error('Parametros invalidos');
+            }
+
+            const isOwner = await this.isPlaylistOwner(playlistId, userId);
+            if (!isOwner) {
+                throw new Error('No tienes permisos para eliminar esta playlist');
+            }
+
+            // Obtener la playlist para eliminar su cover si existe
+            const playlist = await this.getPlaylistById(playlistId);
+            if (playlist && playlist.coverPath) {
+                try {
+                    // Importar storageService dinamicamente para evitar dependencia circular
+                    const { default: storageService } = await import('./storage-service.js');
+                    await storageService.deleteImage(playlist.coverPath);
+                } catch (e) {
+                    console.warn('No se pudo eliminar la imagen de la playlist:', e);
+                }
+            }
+
+            await db.collection('playlists').doc(playlistId).delete();
+            console.log(`Playlist eliminada: ${playlistId}`);
+            return true;
+        } catch (error) {
+            console.error('Error eliminando playlist:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Elimina una cancion de una playlist (solo si el usuario es propietario)
+     * @param {string} playlistId - ID de la playlist
+     * @param {string} songTitle - Titulo de la cancion a eliminar
+     * @param {string} userId - ID del usuario
+     * @returns {Promise<boolean>}
+     */
+    async removeSongFromPlaylist(playlistId, songTitle, userId) {
+        try {
+            if (!playlistId || !songTitle) {
+                throw new Error('Parametros invalidos');
+            }
+
+            // Verificar permisos si se proporciona userId
+            if (userId) {
+                const isOwner = await this.isPlaylistOwner(playlistId, userId);
+                if (!isOwner) {
+                    throw new Error('No tienes permisos para modificar esta playlist');
+                }
+            }
+
+            const playlist = await this.getPlaylistById(playlistId);
+            if (!playlist) {
+                throw new Error('Playlist no encontrada');
+            }
+
+            const songs = playlist.songs || [];
+            const updatedSongs = songs.filter(s => s !== songTitle);
+
+            if (songs.length === updatedSongs.length) {
+                throw new Error('La cancion no esta en la playlist');
+            }
+
+            await db.collection('playlists').doc(playlistId).update({
+                songs: updatedSongs
+            });
+
+            console.log(`Cancion "${songTitle}" eliminada de playlist ${playlistId}`);
+            return true;
+        } catch (error) {
+            console.error('Error eliminando cancion de playlist:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Obtiene todas las playlists
-     * @returns {Promise<Array>} Array de objetos {id, name, songCount, coverPath}
+     * @returns {Promise<Array>} Array de objetos {id, name, songCount, coverPath, ownerId}
      */
     async getAllPlaylists() {
         try {
@@ -1502,11 +1654,12 @@ class FirestoreService {
                     id: doc.id,
                     name: data.name || '',
                     songCount: songs.length,
-                    coverPath: data.coverPath || null
+                    coverPath: data.coverPath || null,
+                    ownerId: data.ownerId || null
                 };
             });
 
-            // Ordenar por nombre alfabéticamente
+            // Ordenar por nombre alfabeticamente
             return playlists.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
         } catch (error) {
             console.error('Error obteniendo playlists:', error);
@@ -1516,23 +1669,24 @@ class FirestoreService {
 
     /**
      * Obtiene lista de playlists con conteos (similar a getYearsWithCounts)
-     * @returns {Promise<Array>} Array de objetos {key: string, count: number, coverPath: string|null, id: string}
+     * @returns {Promise<Array>} Array de objetos {key: string, count: number, coverPath: string|null, id: string, ownerId: string|null}
      */
     async getPlaylistsWithCounts() {
         try {
             const playlistsSnap = await db.collection('playlists').get();
-            
+
             const playlists = [];
             playlistsSnap.docs.forEach(doc => {
                 const playlistData = doc.data();
                 const playlistName = playlistData.name || doc.id;
                 const songs = playlistData.songs || [];
-                
+
                 playlists.push({
                     key: playlistName,
                     id: doc.id,
                     count: songs.length,
-                    coverPath: playlistData.coverPath || null
+                    coverPath: playlistData.coverPath || null,
+                    ownerId: playlistData.ownerId || null
                 });
             });
 
