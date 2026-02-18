@@ -4,7 +4,8 @@
       "Bash(git rm:*)",
       "Bash(xcopy:*)",
       "Bash(robocopy:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(git -C \"C:/Users/ibern/Documents/GitHub/AplicacionMusicaWeb-Public\" ls-files)"
     ]
   }
 }

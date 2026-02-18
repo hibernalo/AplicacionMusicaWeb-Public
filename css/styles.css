@@ -251,9 +251,8 @@ body {
 
 /* Search Container */
 .search-container {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     max-width: 900px;
-    width: 900px;
     min-width: 200px;
 }
 

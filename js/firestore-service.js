@@ -13,53 +13,112 @@ class FirestoreService {
      */
     async getSongsPaginated(limit = 50, lastDoc = null, orderBy = 'rand') {
         try {
-            let query = db.collection('songs');
-
-            // Aplicar ordenamiento
-            // Nota: Para 'rand', no usamos orderBy porque mezclaremos después
-            // Esto permite paginación más eficiente
-            if (orderBy === 'rand') {
-                // Para aleatorio, empezamos desde un punto aleatorio usando rand
-                // Pero mezclaremos después para mayor aleatoriedad
-                query = query.orderBy('rand', 'asc');
-            } else if (orderBy === 'title') {
-                query = query.orderBy('titleMinusculas', 'asc');
-            } else if (orderBy === 'artist') {
-                query = query.orderBy('artist', 'asc');
+            // Ordenamiento no aleatorio: comportamiento original
+            if (orderBy !== 'rand') {
+                let query = db.collection('songs');
+                if (orderBy === 'title') {
+                    query = query.orderBy('titleMinusculas', 'asc');
+                } else if (orderBy === 'artist') {
+                    query = query.orderBy('artist', 'asc');
+                }
+                if (lastDoc) {
+                    query = query.startAfter(lastDoc);
+                }
+                query = query.limit(limit);
+                const snapshot = await query.get();
+                if (snapshot.empty) {
+                    return { songs: [], lastDoc: null, hasMore: false };
+                }
+                return {
+                    songs: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+                    lastDoc: snapshot.docs[snapshot.docs.length - 1],
+                    hasMore: snapshot.docs.length === limit
+                };
             }
 
-            // Aplicar límite
-            query = query.limit(limit);
+            // Ordenamiento aleatorio con punto de inicio aleatorio por sesión.
+            // lastDoc es null en la carga inicial, o { phase, firestoreDoc, threshold }
+            // en páginas siguientes. Esto garantiza que cada visita empiece en un
+            // punto distinto de la colección (verdadera aleatoriedad entre sesiones).
+            const phase = lastDoc ? lastDoc.phase : 1;
+            const threshold = lastDoc ? lastDoc.threshold : Math.random();
+            const firestoreDoc = lastDoc ? lastDoc.firestoreDoc : null;
 
-            // Si hay un último documento, empezar después de él
-            if (lastDoc) {
-                query = query.startAfter(lastDoc);
+            if (phase === 1) {
+                // Fase 1: canciones con rand >= threshold, ordenadas por rand asc
+                let q = db.collection('songs')
+                    .where('rand', '>=', threshold)
+                    .orderBy('rand', 'asc');
+                if (firestoreDoc) {
+                    q = q.startAfter(firestoreDoc);
+                }
+                q = q.limit(limit);
+
+                const snapshot = await q.get();
+                let songs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                if (snapshot.docs.length === limit) {
+                    // Página completa, continuar en fase 1
+                    return {
+                        songs: this.shuffleArray(songs),
+                        lastDoc: { phase: 1, firestoreDoc: snapshot.docs[snapshot.docs.length - 1], threshold },
+                        hasMore: true
+                    };
+                }
+
+                // Fase 1 agotada: hacer wrap-around a la fase 2 (desde rand = 0)
+                const remaining = limit - songs.length;
+                const existingIds = new Set(songs.map(s => s.id));
+
+                const p2Snapshot = await db.collection('songs')
+                    .where('rand', '<', threshold)
+                    .orderBy('rand', 'asc')
+                    .limit(remaining)
+                    .get();
+
+                const p2Songs = p2Snapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() }))
+                    .filter(s => !existingIds.has(s.id));
+
+                songs = [...songs, ...p2Songs];
+
+                const hasMoreInP2 = p2Snapshot.docs.length === remaining;
+                const newLastDoc = p2Snapshot.docs.length > 0
+                    ? { phase: 2, firestoreDoc: p2Snapshot.docs[p2Snapshot.docs.length - 1], threshold }
+                    : null;
+
+                return {
+                    songs: this.shuffleArray(songs),
+                    lastDoc: newLastDoc,
+                    hasMore: hasMoreInP2
+                };
             }
 
-            const snapshot = await query.get();
+            // Fase 2: canciones con rand < threshold, ordenadas por rand asc
+            let q2 = db.collection('songs')
+                .where('rand', '<', threshold)
+                .orderBy('rand', 'asc');
+            if (firestoreDoc) {
+                q2 = q2.startAfter(firestoreDoc);
+            }
+            q2 = q2.limit(limit);
 
-            if (snapshot.empty) {
+            const p2Snapshot = await q2.get();
+            if (p2Snapshot.empty) {
                 return { songs: [], lastDoc: null, hasMore: false };
             }
 
-            let songs = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-
-            // Si el ordenamiento es 'rand', mezclar las canciones aleatoriamente
-            if (orderBy === 'rand') {
-                songs = this.shuffleArray(songs);
-            }
-
-            const newLastDoc = snapshot.docs[snapshot.docs.length - 1];
-            const hasMore = snapshot.docs.length === limit;
+            const songs = this.shuffleArray(p2Snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            const hasMore = p2Snapshot.docs.length === limit;
 
             return {
                 songs,
-                lastDoc: newLastDoc,
+                lastDoc: hasMore
+                    ? { phase: 2, firestoreDoc: p2Snapshot.docs[p2Snapshot.docs.length - 1], threshold }
+                    : null,
                 hasMore
             };
+
         } catch (error) {
             console.error('Error obteniendo canciones desde Firestore:', error);
             throw error;
