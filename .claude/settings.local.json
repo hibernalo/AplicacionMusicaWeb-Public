@@ -5,7 +5,10 @@
       "Bash(xcopy:*)",
       "Bash(robocopy:*)",
       "Bash(powershell:*)",
-      "Bash(git -C \"C:/Users/ibern/Documents/GitHub/AplicacionMusicaWeb-Public\" ls-files)"
+      "Bash(git -C \"C:/Users/ibern/Documents/GitHub/AplicacionMusicaWeb-Public\" ls-files)",
+      "WebSearch",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
     ]
   }
 }

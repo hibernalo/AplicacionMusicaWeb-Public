@@ -63,6 +63,9 @@ class App {
 
             this.isInitialized = true;
             console.log(`Aplicación inicializada. ${initialSongs.length} canciones cargadas.`);
+
+            // Verificar si hay un parametro 'play' en la URL para reproducir una cancion
+            await this.checkAutoPlayFromUrl();
         } catch (error) {
             console.error('Error inicializando aplicación:', error);
             this.uiManager.hideLoading();
@@ -1094,6 +1097,39 @@ class App {
             if (this.currentNavMenu === 'liked') {
                 this.handleNavigation('inicio');
             }
+        }
+    }
+
+    /**
+     * Verifica si hay un parametro 'play' en la URL y reproduce la cancion
+     */
+    async checkAutoPlayFromUrl() {
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const songId = urlParams.get('play');
+
+            if (!songId) {
+                return;
+            }
+
+            console.log(`Auto-play solicitado para cancion ID: ${songId}`);
+
+            // Buscar la cancion por ID
+            const song = await firestoreService.getSongById(songId);
+
+            if (song) {
+                console.log(`Cancion encontrada: ${song.title}`);
+                // Reproducir la cancion
+                await this.audioPlayer.playSong(song, -1);
+
+                // Limpiar el parametro de la URL sin recargar la pagina
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
+            } else {
+                console.log(`Cancion con ID ${songId} no encontrada`);
+            }
+        } catch (error) {
+            console.error('Error en auto-play desde URL:', error);
         }
     }
 }
