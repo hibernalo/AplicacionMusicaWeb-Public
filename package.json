@@ -1,0 +1,25 @@
+{
+  "name": "aplicacionmusicaweb-public",
+  "version": "1.0.0",
+  "description": "Una aplicacion web moderna para gestionar y reproducir tu coleccion de musica personal, construida con JavaScript vanilla y Firebase.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hibernalo/AplicacionMusicaWeb-Public.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/hibernalo/AplicacionMusicaWeb-Public/issues"
+  },
+  "homepage": "https://github.com/hibernalo/AplicacionMusicaWeb-Public#readme",
+  "dependencies": {
+    "firebase-admin": "^13.8.0",
+    "music-metadata": "^11.12.3"
+  }
+}

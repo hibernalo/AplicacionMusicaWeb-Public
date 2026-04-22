@@ -735,6 +735,24 @@ class AudioPlayer {
                 }
             }
 
+            // Actualizar el corazón en la card de la canción
+            const songCard = document.querySelector(`.song-card[data-song-id="${this.currentSong.id}"]`);
+            if (songCard) {
+                const existingHeart = songCard.querySelector('.song-card-liked-heart');
+                if (newLikedValue && !existingHeart) {
+                    const likedHeart = document.createElement('div');
+                    likedHeart.className = 'song-card-liked-heart';
+                    likedHeart.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                    `;
+                    songCard.appendChild(likedHeart);
+                } else if (!newLikedValue && existingHeart) {
+                    existingHeart.remove();
+                }
+            }
+
             console.log(`Cancion ${this.currentSong.id} marcada como ${newLikedValue ? 'favorita' : 'no favorita'}`);
         } catch (error) {
             console.error('Error actualizando liked:', error);

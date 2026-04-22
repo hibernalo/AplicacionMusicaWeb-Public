@@ -405,6 +405,27 @@ body {
     backdrop-filter: blur(4px);
 }
 
+/* Heart indicator for liked songs on card */
+.song-card-liked-heart {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 0.5rem;
+    color: var(--primary-color);
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+.song-card.list-view-card .song-card-liked-heart {
+    position: static;
+    flex-shrink: 0;
+    margin-left: 8px;
+    filter: none;
+}
+
 .song-card:hover .song-card-add-btn {
     opacity: 1;
 }
@@ -830,13 +851,13 @@ body {
 }
 
 .liked-btn.liked svg {
-    fill: #e91e63;
-    color: #e91e63;
+    fill: var(--primary-color);
+    color: var(--primary-color);
 }
 
 .liked-btn:hover svg {
-    fill: #e91e63;
-    color: #e91e63;
+    fill: var(--primary-color);
+    color: var(--primary-color);
 }
 
 @media (max-width: 768px) {
@@ -1176,7 +1197,7 @@ body {
 
 .liked-btn-inline-right:hover {
     background-color: var(--surface-hover);
-    color: #e91e63;
+    color: var(--primary-color);
 }
 
 .liked-btn-inline-right svg {
@@ -1187,11 +1208,11 @@ body {
 }
 
 .liked-btn-inline-right.liked {
-    color: #e91e63;
+    color: var(--primary-color);
 }
 
 .liked-btn-inline-right.liked svg {
-    fill: #e91e63;
+    fill: var(--primary-color);
 }
 
 .song-info-buttons-column {
@@ -1913,8 +1934,8 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
+    background: #2a2a2a;
+    border: 1px solid #555555;
     border-radius: 20px;
     padding: 6px 12px;
     color: var(--text-secondary);
@@ -1923,9 +1944,9 @@ body {
 }
 
 .user-auth-btn:hover {
-    background: var(--hover-color);
-    color: var(--text-color);
-    border-color: var(--text-secondary);
+    background: #3a3a3a;
+    color: var(--text-primary);
+    border-color: #888888;
 }
 
 .user-auth-btn.logged-in {
@@ -1953,8 +1974,8 @@ body {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
+    background: var(--primary-color);
+    border: 1px solid var(--primary-dark);
     border-radius: 8px;
     padding: 12px;
     min-width: 200px;
@@ -1964,10 +1985,10 @@ body {
 
 .user-dropdown-email {
     font-size: 12px;
-    color: var(--text-secondary);
+    color: #ffffff;
     padding-bottom: 10px;
     margin-bottom: 10px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
     word-break: break-all;
 }
 
@@ -1980,14 +2001,14 @@ body {
     border: none;
     padding: 8px;
     border-radius: 4px;
-    color: var(--text-color);
+    color: #ffffff;
     cursor: pointer;
     font-size: 14px;
     transition: background 0.2s ease;
 }
 
 .user-dropdown-btn:hover {
-    background: var(--hover-color);
+    background: rgba(255, 255, 255, 0.15);
 }
 
 /* ========================================

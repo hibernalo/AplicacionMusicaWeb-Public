@@ -974,8 +974,8 @@ class FirestoreService {
     }
 
     /**
-     * Obtiene canciones recientemente añadidas ordenadas por fecha de creación (paginadas)
-     * Solo incluye canciones que tengan el campo createdAt y que hayan sido añadidas en la última semana.
+     * Obtiene las canciones más recientemente añadidas ordenadas por fecha de creación (paginadas)
+     * Solo incluye canciones que tengan el campo createdAt. No hay límite de fecha.
      * @param {number} limit - Número de canciones a obtener por página (default: 50)
      * @param {number} offset - Offset para paginación (default: 0)
      * @returns {Promise<{songs: Array, offset: number, hasMore: boolean}>} Objeto con array de canciones, offset actual y si hay más
@@ -984,25 +984,21 @@ class FirestoreService {
         try {
             // Obtener todas las canciones para filtrar por createdAt
             const snapshot = await db.collection('songs').get();
-            
+
             if (snapshot.empty) {
                 return { songs: [], offset: 0, hasMore: false };
             }
 
-            // Calcular rango de fechas: desde hace una semana hasta hoy
-            const now = Date.now();
-            const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000); // 7 días en milisegundos
-
-            // Filtrar y mapear canciones con createdAt dentro del rango
+            // Filtrar y mapear canciones con createdAt
             let songs = snapshot.docs
                 .map(doc => {
                     const data = doc.data();
-                    
+
                     // Solo procesar canciones que tengan createdAt
                     if (!data.createdAt) {
                         return null;
                     }
-                    
+
                     // Convertir createdAt a milisegundos
                     let timestamp;
                     if (data.createdAt.toMillis) {
@@ -1018,19 +1014,14 @@ class FirestoreService {
                         // Formato desconocido, omitir
                         return null;
                     }
-                    
-                    // Filtrar solo canciones dentro del rango de una semana
-                    if (timestamp < oneWeekAgo || timestamp > now) {
-                        return null;
-                    }
-                    
+
                     return {
                         id: doc.id,
                         ...data,
                         _sortTimestamp: timestamp // Campo temporal para ordenar
                     };
                 })
-                .filter(song => song !== null); // Eliminar nulls (canciones sin createdAt o fuera de rango)
+                .filter(song => song !== null); // Eliminar nulls (canciones sin createdAt)
 
             // Ordenar por timestamp descendente (más recientes primero)
             songs.sort((a, b) => {

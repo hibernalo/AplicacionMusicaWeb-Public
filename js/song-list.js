@@ -446,7 +446,7 @@ class SongListManager {
 
         try {
             console.log('loadRecentSongs: Llamando a función de Firestore para canciones recientes');
-            const result = await firestoreService.getRecentSongs(this.pageSize, this.recentOffset);
+            const result = await firestoreService.getRecentSongs(100, this.recentOffset);
 
             console.log(`loadRecentSongs: Se obtuvieron ${result.songs.length} canciones`);
             this.allSongs = result.songs;
@@ -562,7 +562,7 @@ class SongListManager {
         this.isLoading = true;
 
         try {
-            const result = await firestoreService.getRecentSongs(this.pageSize, this.recentOffset);
+            const result = await firestoreService.getRecentSongs(100, this.recentOffset);
 
             if (result.songs.length > 0) {
                 this.allSongs = [...this.allSongs, ...result.songs];
