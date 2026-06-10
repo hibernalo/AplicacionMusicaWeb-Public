@@ -514,6 +514,22 @@ class UIManager {
         card.appendChild(songInfo);
         card.appendChild(addToPlaylistBtn);
 
+        // Botón para añadir a la cola (esquina superior izquierda)
+        const addToQueueBtn = document.createElement('button');
+        addToQueueBtn.className = 'song-card-queue-btn';
+        addToQueueBtn.title = 'Añadir a la cola';
+        addToQueueBtn.innerHTML = `
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 10h11v2H3v-2zm0-4h11v2H3V6zm0 8h7v2H3v-2zm13-1v4l4-2-4-2z"/>
+            </svg>
+        `;
+        addToQueueBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Evitar que se active el click del card
+            const event = new CustomEvent('addSongToQueue', { detail: { song } });
+            document.dispatchEvent(event);
+        });
+        card.appendChild(addToQueueBtn);
+
         // Boton para eliminar de playlist (solo visible cuando estamos en una playlist)
         if (this.currentFilterType === 'playlist' && this.currentFilterValue) {
             const removeFromPlaylistBtn = document.createElement('button');
@@ -662,6 +678,22 @@ class UIManager {
         card.appendChild(songInfo);
         card.appendChild(listInfo);
         card.appendChild(addToPlaylistBtn);
+
+        // Botón para añadir a la cola (esquina superior izquierda)
+        const addToQueueBtn = document.createElement('button');
+        addToQueueBtn.className = 'song-card-queue-btn';
+        addToQueueBtn.title = 'Añadir a la cola';
+        addToQueueBtn.innerHTML = `
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 10h11v2H3v-2zm0-4h11v2H3V6zm0 8h7v2H3v-2zm13-1v4l4-2-4-2z"/>
+            </svg>
+        `;
+        addToQueueBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Evitar que se active el click del card
+            const event = new CustomEvent('addSongToQueue', { detail: { song } });
+            document.dispatchEvent(event);
+        });
+        card.appendChild(addToQueueBtn);
 
         // Boton para eliminar de playlist (solo visible cuando estamos en una playlist)
         if (this.currentFilterType === 'playlist' && this.currentFilterValue) {
