@@ -25,9 +25,10 @@ class App {
      * Refresca el panel de cola con el estado actual del reproductor y la cola manual.
      */
     refreshQueuePanel() {
-        const currentSong = this.audioPlayer ? this.audioPlayer.getCurrentSong() : null;
+        if (!this.audioPlayer || !this.uiManager) return;
+        const currentSong = this.audioPlayer.getCurrentSong();
         const queue = queueManager.getQueue();
-        const upcoming = this.audioPlayer ? this.audioPlayer.getUpcomingFromList(20) : [];
+        const upcoming = this.audioPlayer.getUpcomingFromList();
         this.uiManager.renderQueuePanel({ currentSong, queue, upcoming });
     }
 
@@ -267,10 +268,7 @@ class App {
         document.addEventListener('queueRowClick', (e) => {
             const song = queueManager.jumpTo(e.detail.songId);
             if (song) {
-                const idx = this.audioPlayer.songList
-                    ? this.audioPlayer.songList.findIndex(s => s.id === song.id)
-                    : -1;
-                this.audioPlayer.playSong(song, idx);
+                this.audioPlayer.playSong(song, -1);
             }
         });
 
