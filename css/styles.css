@@ -2273,9 +2273,9 @@ body {
     right: 0;
     width: 340px;
     max-width: 90vw;
-    height: 100%;
+    height: calc(100vh - 90px);
     background: var(--surface, #181818);
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 1px solid var(--border-color);
     box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5);
     transform: translateX(100%);
     transition: transform 0.25s ease;
@@ -2294,7 +2294,7 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .queue-panel-header h2 {
