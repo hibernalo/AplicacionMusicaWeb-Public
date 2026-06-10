@@ -679,7 +679,7 @@ class UIManager {
         card.appendChild(listInfo);
         card.appendChild(addToPlaylistBtn);
 
-        // Botón para añadir a la cola (esquina superior izquierda)
+        // Botón para añadir a la cola
         const addToQueueBtn = document.createElement('button');
         addToQueueBtn.className = 'song-card-queue-btn';
         addToQueueBtn.title = 'Añadir a la cola';

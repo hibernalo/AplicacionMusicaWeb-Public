@@ -473,10 +473,17 @@ body {
     transform: scale(0.95);
 }
 
+/* Cuando ambos botones coexisten en vista playlist, desplazar la cola hacia abajo
+   para que no tape al botón de quitar de playlist */
+.song-card:has(.song-card-remove-btn) .song-card-queue-btn {
+    top: 3rem;
+}
+
 .song-card.list-view-card .song-card-queue-btn {
     position: static;
     opacity: 1;
     flex-shrink: 0;
+    margin-right: 8px;
 }
 
 /* Boton para eliminar cancion de playlist */
