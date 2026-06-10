@@ -1480,6 +1480,144 @@ class UIManager {
             dropdown.style.display = 'none';
         }
     }
+
+    /** Abre el panel de la cola. */
+    openQueuePanel() {
+        const panel = document.getElementById('queuePanel');
+        if (panel) panel.classList.add('open');
+    }
+
+    /** Cierra el panel de la cola. */
+    closeQueuePanel() {
+        const panel = document.getElementById('queuePanel');
+        if (panel) panel.classList.remove('open');
+    }
+
+    /** Alterna la visibilidad del panel de la cola. */
+    toggleQueuePanel() {
+        const panel = document.getElementById('queuePanel');
+        if (panel) panel.classList.toggle('open');
+    }
+
+    /**
+     * Renderiza el contenido del panel de la cola.
+     * @param {Object} data
+     * @param {Object|null} data.currentSong - Canción en reproducción
+     * @param {Array} data.queue - Cola manual (objetos canción)
+     * @param {Array} data.upcoming - Próximas de la lista (objetos canción)
+     */
+    renderQueuePanel({ currentSong, queue, upcoming }) {
+        const body = document.getElementById('queuePanelBody');
+        if (!body) return;
+        body.innerHTML = '';
+
+        // Reproduciendo ahora
+        if (currentSong) {
+            const title = document.createElement('div');
+            title.className = 'queue-section-title';
+            title.innerHTML = '<span>Reproduciendo ahora</span>';
+            body.appendChild(title);
+            body.appendChild(this.buildQueueRow(currentSong, { variant: 'now-playing' }));
+        }
+
+        // En cola (manual)
+        const queueTitle = document.createElement('div');
+        queueTitle.className = 'queue-section-title';
+        queueTitle.innerHTML = '<span>En cola</span>';
+        if (queue.length > 0) {
+            const clearBtn = document.createElement('button');
+            clearBtn.className = 'queue-clear-btn';
+            clearBtn.id = 'queueClearBtn';
+            clearBtn.textContent = 'Limpiar';
+            queueTitle.appendChild(clearBtn);
+        }
+        body.appendChild(queueTitle);
+
+        if (queue.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'queue-empty';
+            empty.textContent = 'La cola está vacía';
+            body.appendChild(empty);
+        } else {
+            queue.forEach(song => {
+                body.appendChild(this.buildQueueRow(song, { variant: 'queued', removable: true, clickable: true }));
+            });
+        }
+
+        // A continuación (de la lista)
+        if (upcoming && upcoming.length > 0) {
+            const upTitle = document.createElement('div');
+            upTitle.className = 'queue-section-title';
+            upTitle.innerHTML = '<span>A continuación</span>';
+            body.appendChild(upTitle);
+            upcoming.forEach(song => {
+                body.appendChild(this.buildQueueRow(song, { variant: 'upcoming' }));
+            });
+        }
+    }
+
+    /**
+     * Construye una fila del panel de la cola.
+     * @param {Object} song
+     * @param {Object} opts - { variant, removable, clickable }
+     * @returns {HTMLElement}
+     */
+    buildQueueRow(song, opts = {}) {
+        const row = document.createElement('div');
+        row.className = 'queue-row';
+        if (opts.variant) row.classList.add(opts.variant);
+        if (opts.clickable) row.classList.add('clickable');
+        row.dataset.songId = song.id;
+
+        const cover = document.createElement('img');
+        cover.className = 'queue-row-cover';
+        cover.alt = song.title || '';
+        if (song.coverPath) {
+            storageService.getCoverUrl(song.coverPath)
+                .then(url => { cover.src = url; })
+                .catch(() => {});
+        }
+
+        const info = document.createElement('div');
+        info.className = 'queue-row-info';
+        const t = document.createElement('div');
+        t.className = 'queue-row-title';
+        t.textContent = song.title || 'Sin título';
+        const a = document.createElement('div');
+        a.className = 'queue-row-artist';
+        a.textContent = song.artist || 'Artista desconocido';
+        info.appendChild(t);
+        info.appendChild(a);
+
+        row.appendChild(cover);
+        row.appendChild(info);
+
+        if (opts.clickable) {
+            row.addEventListener('click', () => {
+                const event = new CustomEvent('queueRowClick', { detail: { songId: song.id } });
+                document.dispatchEvent(event);
+            });
+        }
+
+        if (opts.removable) {
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'queue-remove-btn';
+            removeBtn.title = 'Quitar de la cola';
+            removeBtn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+            `;
+            removeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const event = new CustomEvent('queueRowRemove', { detail: { songId: song.id } });
+                document.dispatchEvent(event);
+            });
+            row.appendChild(removeBtn);
+        }
+
+        return row;
+    }
 }
 
 export default UIManager;
