@@ -1510,6 +1510,8 @@ class UIManager {
         const body = document.getElementById('queuePanelBody');
         if (!body) return;
         body.innerHTML = '';
+        queue = Array.isArray(queue) ? queue : [];
+        upcoming = Array.isArray(upcoming) ? upcoming : [];
 
         // Reproduciendo ahora
         if (currentSong) {
@@ -1529,6 +1531,9 @@ class UIManager {
             clearBtn.className = 'queue-clear-btn';
             clearBtn.id = 'queueClearBtn';
             clearBtn.textContent = 'Limpiar';
+            clearBtn.addEventListener('click', () => {
+                document.dispatchEvent(new CustomEvent('queueClearClick'));
+            });
             queueTitle.appendChild(clearBtn);
         }
         body.appendChild(queueTitle);
@@ -1575,7 +1580,9 @@ class UIManager {
         if (song.coverPath) {
             storageService.getCoverUrl(song.coverPath)
                 .then(url => { cover.src = url; })
-                .catch(() => {});
+                .catch(() => { cover.src = storageService.getPlaceholderCoverUrl(); });
+        } else {
+            cover.src = storageService.getPlaceholderCoverUrl();
         }
 
         const info = document.createElement('div');
