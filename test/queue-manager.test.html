@@ -38,15 +38,24 @@
 
         // jumpTo() descarta la objetivo y las anteriores
         queueManager.clear();
-        queueManager.queue = [{id:'D'},{id:'C'},{id:'A'},{id:'B'}];
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'D' }); // cola: [D, C, A, B]
         const jumped = queueManager.jumpTo('A');
         assert(jumped.id === 'A', 'jumpTo() devuelve la objetivo');
         assert(ids(queueManager.getQueue()) === 'B', 'jumpTo() descarta objetivo + anteriores, deja el resto');
+        assert(ids(JSON.parse(localStorage.getItem('musicQueue'))) === 'B', 'jumpTo() persiste el cambio en localStorage');
 
         // remove() quita una concreta
-        queueManager.queue = [{id:'D'},{id:'C'},{id:'A'},{id:'B'}];
+        queueManager.clear();
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'D' }); // cola: [D, C, A, B]
         queueManager.remove('C');
         assert(ids(queueManager.getQueue()) === 'D,A,B', 'remove() quita la canción indicada');
+        assert(ids(JSON.parse(localStorage.getItem('musicQueue'))) === 'D,A,B', 'remove() persiste el cambio en localStorage');
 
         // clear() vacía
         queueManager.clear();

@@ -1,11 +1,13 @@
+const STORAGE_KEY = 'musicQueue';
+
 /**
  * Gestor de la cola de reproducción manual.
  * Prioridad LIFO: la última canción añadida suena primero.
+ * Implementado como pila sobre un array: unshift() al añadir, shift() al reproducir.
  * Persiste en localStorage (por navegador).
  */
 class QueueManager {
     constructor() {
-        this.STORAGE_KEY = 'musicQueue';
         this.queue = []; // array de objetos canción completos
         this.restore();
     }
@@ -86,7 +88,7 @@ class QueueManager {
     /** Guarda la cola en localStorage. */
     persist() {
         try {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.queue));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.queue));
         } catch (error) {
             console.error('QueueManager: error guardando la cola', error);
         }
@@ -95,7 +97,7 @@ class QueueManager {
     /** Restaura la cola desde localStorage (tolerante a JSON corrupto). */
     restore() {
         try {
-            const raw = localStorage.getItem(this.STORAGE_KEY);
+            const raw = localStorage.getItem(STORAGE_KEY);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 this.queue = Array.isArray(parsed) ? parsed : [];
