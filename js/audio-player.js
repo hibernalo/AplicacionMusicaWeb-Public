@@ -1,6 +1,7 @@
 import storageService from './storage-service.js';
 import firestoreService from './firestore-service.js';
 import userLikesService from './user-likes-service.js';
+import queueManager from './queue-manager.js';
 
 /**
  * Controlador del reproductor de audio
@@ -905,6 +906,16 @@ class AudioPlayer {
      * Reproduce la siguiente canción
      */
     playNext() {
+        // La cola manual tiene prioridad sobre la lista/aleatorio
+        if (!queueManager.isEmpty()) {
+            const nextFromQueue = queueManager.takeNext();
+            if (nextFromQueue) {
+                const idx = this.songList.findIndex(s => s.id === nextFromQueue.id);
+                this.playSong(nextFromQueue, idx >= 0 ? idx : this.currentIndex);
+                return;
+            }
+        }
+
         if (this.songList.length === 0) return;
 
         if (this.isShuffle) {
@@ -958,11 +969,11 @@ class AudioPlayer {
             this.playNext();
         } else {
             // Modo normal sin repeat
-            if (this.currentIndex < this.songList.length - 1) {
-                // Hay más canciones, reproducir siguiente
+            if (!queueManager.isEmpty()) {
+                this.playNext(); // playNext consumirá la cola
+            } else if (this.currentIndex < this.songList.length - 1) {
                 this.playNext();
             } else {
-                // Llegamos al final: volver a la primera canción
                 this.currentIndex = 0;
                 const firstSong = this.songList[0];
                 if (firstSong) {
@@ -1071,6 +1082,30 @@ class AudioPlayer {
      */
     getCurrentIndex() {
         return this.currentIndex;
+    }
+
+    /**
+     * Devuelve las próximas canciones de la lista (no de la cola manual),
+     * para mostrarlas en la sección "A continuación" del panel.
+     * @param {number} limite - Máximo de canciones a devolver
+     * @returns {Array} Próximas canciones de la lista
+     */
+    getUpcomingFromList(limite = 20) {
+        if (this.isShuffle) {
+            return this.shuffleQueue.slice(0, limite);
+        }
+        if (this.songList.length === 0) return [];
+        const upcoming = [];
+        for (let i = this.currentIndex + 1; i < this.songList.length && upcoming.length < limite; i++) {
+            upcoming.push(this.songList[i]);
+        }
+        // En repeat all, dar la vuelta desde el principio hasta la canción actual
+        if (this.repeatMode === 'all' && upcoming.length < limite) {
+            for (let i = 0; i < this.currentIndex && upcoming.length < limite; i++) {
+                upcoming.push(this.songList[i]);
+            }
+        }
+        return upcoming;
     }
 
     /**
