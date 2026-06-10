@@ -911,7 +911,7 @@ class AudioPlayer {
             const nextFromQueue = queueManager.takeNext();
             if (nextFromQueue) {
                 const idx = this.songList.findIndex(s => s.id === nextFromQueue.id);
-                this.playSong(nextFromQueue, idx >= 0 ? idx : this.currentIndex);
+                this.playSong(nextFromQueue, idx);
                 return;
             }
         }
