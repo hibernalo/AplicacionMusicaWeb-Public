@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Test QueueManager</title>
+</head>
+<body>
+    <h1>QueueManager — resultados</h1>
+    <pre id="out"></pre>
+    <script type="module">
+        // Limpiar estado previo antes de importar (el constructor llama a restore())
+        localStorage.removeItem('musicQueue');
+        const queueManager = (await import('../js/queue-manager.js')).default;
+
+        const out = document.getElementById('out');
+        let passed = 0, failed = 0;
+        function assert(cond, msg) {
+            if (cond) { passed++; out.textContent += `PASS: ${msg}\n`; }
+            else { failed++; out.textContent += `FAIL: ${msg}\n`; }
+        }
+        const ids = q => q.map(s => s.id).join(',');
+
+        // add() es LIFO
+        queueManager.clear();
+        queueManager.add({ id: 'A', title: 'A' });
+        queueManager.add({ id: 'B', title: 'B' });
+        queueManager.add({ id: 'C', title: 'C' });
+        assert(ids(queueManager.getQueue()) === 'C,B,A', 'add() inserta al principio (LIFO)');
+
+        // add() duplicado mueve al frente
+        queueManager.add({ id: 'A', title: 'A' });
+        assert(ids(queueManager.getQueue()) === 'A,C,B', 'add() duplicado mueve al frente');
+
+        // takeNext() saca el primero
+        const first = queueManager.takeNext();
+        assert(first.id === 'A', 'takeNext() devuelve el primero');
+        assert(ids(queueManager.getQueue()) === 'C,B', 'takeNext() quita el primero');
+
+        // jumpTo() descarta la objetivo y las anteriores
+        queueManager.clear();
+        queueManager.queue = [{id:'D'},{id:'C'},{id:'A'},{id:'B'}];
+        const jumped = queueManager.jumpTo('A');
+        assert(jumped.id === 'A', 'jumpTo() devuelve la objetivo');
+        assert(ids(queueManager.getQueue()) === 'B', 'jumpTo() descarta objetivo + anteriores, deja el resto');
+
+        // remove() quita una concreta
+        queueManager.queue = [{id:'D'},{id:'C'},{id:'A'},{id:'B'}];
+        queueManager.remove('C');
+        assert(ids(queueManager.getQueue()) === 'D,A,B', 'remove() quita la canción indicada');
+
+        // clear() vacía
+        queueManager.clear();
+        assert(queueManager.isEmpty(), 'clear() vacía la cola');
+
+        // persistencia: persist + nueva lectura de localStorage
+        queueManager.add({ id: 'X', title: 'X' });
+        const stored = JSON.parse(localStorage.getItem('musicQueue'));
+        assert(stored.length === 1 && stored[0].id === 'X', 'persist() guarda en localStorage');
+
+        out.textContent += `\nTOTAL: ${passed} passed, ${failed} failed\n`;
+        document.title = failed === 0 ? 'TEST OK' : 'TEST FAIL';
+    </script>
+</body>
+</html>
