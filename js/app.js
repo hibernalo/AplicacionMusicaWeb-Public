@@ -5,6 +5,7 @@ import userLikesService from './user-likes-service.js';
 import AudioPlayer from './audio-player.js';
 import SongListManager from './song-list.js';
 import UIManager from './ui-manager.js';
+import queueManager from './queue-manager.js';
 
 /**
  * Aplicación principal - Coordina todos los componentes
@@ -18,6 +19,16 @@ class App {
         this.currentNavMenu = 'inicio'; // 'inicio', 'liked', 'genre', 'source', 'artist', 'album', 'year'
         this.sourceGenreId = null; // ID del género seleccionado cuando estamos en sources
         this.currentUser = null; // Usuario autenticado actual
+    }
+
+    /**
+     * Refresca el panel de cola con el estado actual del reproductor y la cola manual.
+     */
+    refreshQueuePanel() {
+        const currentSong = this.audioPlayer ? this.audioPlayer.getCurrentSong() : null;
+        const queue = queueManager.getQueue();
+        const upcoming = this.audioPlayer ? this.audioPlayer.getUpcomingFromList(20) : [];
+        this.uiManager.renderQueuePanel({ currentSong, queue, upcoming });
     }
 
     /**
@@ -142,6 +153,7 @@ class App {
         document.addEventListener('songChanged', (e) => {
             // El UIManager ya escucha este evento para actualizar la UI
             console.log('Canción cambiada:', e.detail.song.title);
+            this.refreshQueuePanel();
         });
 
         // Cuando se solicita una búsqueda
@@ -239,6 +251,37 @@ class App {
             } finally {
                 this.uiManager.hideLoading();
             }
+        });
+
+        // Encolar una canción desde una tarjeta
+        document.addEventListener('addSongToQueue', (e) => {
+            queueManager.add(e.detail.song);
+        });
+
+        // La cola cambió: repintar el panel
+        document.addEventListener('queueChanged', () => {
+            this.refreshQueuePanel();
+        });
+
+        // Clic en una fila de la cola: saltar a esa canción y consumir la cola
+        document.addEventListener('queueRowClick', (e) => {
+            const song = queueManager.jumpTo(e.detail.songId);
+            if (song) {
+                const idx = this.audioPlayer.songList
+                    ? this.audioPlayer.songList.findIndex(s => s.id === song.id)
+                    : -1;
+                this.audioPlayer.playSong(song, idx);
+            }
+        });
+
+        // Quitar una fila de la cola
+        document.addEventListener('queueRowRemove', (e) => {
+            queueManager.remove(e.detail.songId);
+        });
+
+        // Limpiar la cola
+        document.addEventListener('queueClearClick', () => {
+            queueManager.clear();
         });
 
         // Event listeners para los botones de filtro
@@ -450,6 +493,23 @@ class App {
                 this.uiManager.rerenderSongs(allSongs);
             }
         });
+
+        // Botón para abrir/cerrar el panel de cola
+        const queueToggleBtn = document.getElementById('queueToggleBtn');
+        if (queueToggleBtn) {
+            queueToggleBtn.addEventListener('click', () => {
+                this.uiManager.toggleQueuePanel();
+                this.refreshQueuePanel();
+            });
+        }
+
+        // Botón para cerrar el panel de cola
+        const queuePanelClose = document.getElementById('queuePanelClose');
+        if (queuePanelClose) {
+            queuePanelClose.addEventListener('click', () => {
+                this.uiManager.closeQueuePanel();
+            });
+        }
     }
 
     /**
