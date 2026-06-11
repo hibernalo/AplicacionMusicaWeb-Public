@@ -1657,24 +1657,26 @@ class UIManager {
         e.stopPropagation();
         const container = row.parentElement;
         if (!container) return;
-        const handle = e.currentTarget;
         const onMove = (ev) => this.onQueueDragMove(ev);
         const onUp = (ev) => this.onQueueDragEnd(ev);
         this.queueDragState = {
             row,
             container,
-            handle,
             pointerId: e.pointerId,
             startIndex: Array.from(container.children).indexOf(row),
             moved: false,
             onMove,
             onUp
         };
-        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        // Capturar en el CONTENEDOR (estable: nunca se reordena, solo sus hijos).
+        // Si capturáramos en el tirador, al mover la fila (su ancestro) en el DOM el
+        // navegador liberaría la captura y dispararía pointercancel, abortando el arrastre.
+        // Escuchamos en document para recibir los eventos pase lo que pase con la fila.
+        try { container.setPointerCapture(e.pointerId); } catch (_) {}
         row.classList.add('dragging');
-        handle.addEventListener('pointermove', onMove);
-        handle.addEventListener('pointerup', onUp);
-        handle.addEventListener('pointercancel', onUp);
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
     }
 
     /** Reordena en vivo mientras se arrastra. */
@@ -1709,15 +1711,13 @@ class UIManager {
     cleanupQueueDrag() {
         const state = this.queueDragState;
         if (!state) return;
-        const { row, handle, pointerId, onMove, onUp } = state;
+        const { row, container, pointerId, onMove, onUp } = state;
         if (row) row.classList.remove('dragging');
-        if (handle) {
-            handle.removeEventListener('pointermove', onMove);
-            handle.removeEventListener('pointerup', onUp);
-            handle.removeEventListener('pointercancel', onUp);
-            if (pointerId != null) {
-                try { handle.releasePointerCapture(pointerId); } catch (_) {}
-            }
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+        if (container && pointerId != null) {
+            try { container.releasePointerCapture(pointerId); } catch (_) {}
         }
         this.queueDragState = null;
     }
