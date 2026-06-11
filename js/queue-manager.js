@@ -55,6 +55,22 @@ class QueueManager {
     }
 
     /**
+     * Reordena la cola: mueve el elemento de fromIndex a toIndex.
+     * @param {number} fromIndex
+     * @param {number} toIndex
+     */
+    move(fromIndex, toIndex) {
+        const len = this.queue.length;
+        if (fromIndex < 0 || fromIndex >= len) return;
+        if (toIndex < 0 || toIndex >= len) return;
+        if (fromIndex === toIndex) return;
+        const [item] = this.queue.splice(fromIndex, 1);
+        this.queue.splice(toIndex, 0, item);
+        this.persist();
+        this.dispatchChange();
+    }
+
+    /**
      * Quita una canción concreta de la cola sin reproducirla.
      * @param {string} songId - ID de la canción a quitar
      */

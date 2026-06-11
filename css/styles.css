@@ -2421,3 +2421,31 @@ body {
     font-size: 0.9rem;
     padding: 8px 4px;
 }
+
+/* Reordenar la cola arrastrando */
+.queue-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.queue-drag-handle {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    color: var(--text-secondary);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.queue-drag-handle:active {
+    cursor: grabbing;
+}
+
+.queue-row.dragging {
+    opacity: 0.6;
+    background: rgba(255, 255, 255, 0.08);
+    user-select: none;
+}

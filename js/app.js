@@ -282,6 +282,11 @@ class App {
             queueManager.clear();
         });
 
+        // Reordenar la cola arrastrando
+        document.addEventListener('queueReorder', (e) => {
+            queueManager.move(e.detail.fromIndex, e.detail.toIndex);
+        });
+
         // Event listeners para los botones de filtro
         this.setupFilterButtons();
     }

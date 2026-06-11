@@ -1544,9 +1544,13 @@ class UIManager {
             empty.textContent = 'La cola está vacía';
             body.appendChild(empty);
         } else {
+            const list = document.createElement('div');
+            list.className = 'queue-list';
+            list.id = 'queueDraggableList';
             queue.forEach(song => {
-                body.appendChild(this.buildQueueRow(song, { variant: 'queued', removable: true, clickable: true }));
+                list.appendChild(this.buildQueueRow(song, { variant: 'queued', removable: true, clickable: true, draggable: true }));
             });
+            body.appendChild(list);
         }
 
         // A continuación (de la lista)
@@ -1596,6 +1600,21 @@ class UIManager {
         info.appendChild(t);
         info.appendChild(a);
 
+        if (opts.draggable) {
+            const handle = document.createElement('div');
+            handle.className = 'queue-drag-handle';
+            handle.title = 'Arrastra para reordenar';
+            handle.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M9 5h2v2H9V5zm4 0h2v2h-2V5zM9 11h2v2H9v-2zm4 0h2v2h-2v-2zm-4 6h2v2H9v-2zm4 0h2v2h-2v-2z"/>
+                </svg>
+            `;
+            // Evitar que un clic en el tirador reproduzca la canción
+            handle.addEventListener('click', (e) => e.stopPropagation());
+            handle.addEventListener('pointerdown', (e) => this.startQueueDrag(e, row));
+            row.appendChild(handle);
+        }
+
         row.appendChild(cover);
         row.appendChild(info);
 
@@ -1624,6 +1643,79 @@ class UIManager {
         }
 
         return row;
+    }
+
+    /**
+     * Inicia el arrastre de una fila de la cola (Pointer Events: ratón y táctil).
+     */
+    startQueueDrag(e, row) {
+        e.preventDefault();
+        e.stopPropagation();
+        const container = row.parentElement;
+        if (!container) return;
+        const handle = e.currentTarget;
+        const onMove = (ev) => this.onQueueDragMove(ev);
+        const onUp = (ev) => this.onQueueDragEnd(ev);
+        this.queueDragState = {
+            row,
+            container,
+            handle,
+            pointerId: e.pointerId,
+            startIndex: Array.from(container.children).indexOf(row),
+            moved: false,
+            onMove,
+            onUp
+        };
+        try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        row.classList.add('dragging');
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+        handle.addEventListener('pointercancel', onUp);
+    }
+
+    /** Reordena en vivo mientras se arrastra. */
+    onQueueDragMove(e) {
+        const state = this.queueDragState;
+        if (!state) return;
+        e.preventDefault();
+        state.moved = true;
+        const after = this.getQueueDragAfterElement(state.container, e.clientY);
+        if (after == null) {
+            state.container.appendChild(state.row);
+        } else if (after !== state.row) {
+            state.container.insertBefore(state.row, after);
+        }
+    }
+
+    /** Calcula la fila ante la que insertar según la posición vertical del cursor. */
+    getQueueDragAfterElement(container, y) {
+        const rows = [...container.querySelectorAll('.queue-row:not(.dragging)')];
+        let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+        for (const child of rows) {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                closest = { offset, element: child };
+            }
+        }
+        return closest.element;
+    }
+
+    /** Termina el arrastre y emite queueReorder si cambió la posición. */
+    onQueueDragEnd(e) {
+        const state = this.queueDragState;
+        if (!state) return;
+        const { row, container, handle, pointerId, startIndex, moved, onMove, onUp } = state;
+        row.classList.remove('dragging');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+        try { handle.releasePointerCapture(pointerId); } catch (_) {}
+        const endIndex = Array.from(container.children).indexOf(row);
+        this.queueDragState = null;
+        if (moved && endIndex !== -1 && endIndex !== startIndex) {
+            document.dispatchEvent(new CustomEvent('queueReorder', { detail: { fromIndex: startIndex, toIndex: endIndex } }));
+        }
     }
 }
 

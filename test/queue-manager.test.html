@@ -66,6 +66,53 @@
         const stored = JSON.parse(localStorage.getItem('musicQueue'));
         assert(stored.length === 1 && stored[0].id === 'X', 'persist() guarda en localStorage');
 
+        // move() — mover hacia abajo: [A,B,C,D] → move(0,2) → [B,C,A,D]
+        queueManager.clear();
+        queueManager.add({ id: 'D' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' }); // cola: [A,B,C,D]
+        assert(ids(queueManager.getQueue()) === 'A,B,C,D', 'move() setup: cola inicial [A,B,C,D]');
+        queueManager.move(0, 2);
+        assert(ids(queueManager.getQueue()) === 'B,C,A,D', 'move() mover hacia abajo: move(0,2) → [B,C,A,D]');
+
+        // move() — mover hacia arriba: [A,B,C,D] → move(3,0) → [D,A,B,C]
+        queueManager.clear();
+        queueManager.add({ id: 'D' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' }); // cola: [A,B,C,D]
+        queueManager.move(3, 0);
+        assert(ids(queueManager.getQueue()) === 'D,A,B,C', 'move() mover hacia arriba: move(3,0) → [D,A,B,C]');
+
+        // move() — no-op: move(1,1) no cambia nada
+        queueManager.clear();
+        queueManager.add({ id: 'D' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' }); // cola: [A,B,C,D]
+        queueManager.move(1, 1);
+        assert(ids(queueManager.getQueue()) === 'A,B,C,D', 'move() no-op: move(1,1) no cambia el orden');
+
+        // move() — fuera de rango: move(0,99) no cambia nada
+        queueManager.clear();
+        queueManager.add({ id: 'D' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' }); // cola: [A,B,C,D]
+        queueManager.move(0, 99);
+        assert(ids(queueManager.getQueue()) === 'A,B,C,D', 'move() fuera de rango: move(0,99) no cambia el orden');
+
+        // move() — persistencia: localStorage refleja el nuevo orden
+        queueManager.clear();
+        queueManager.add({ id: 'D' });
+        queueManager.add({ id: 'C' });
+        queueManager.add({ id: 'B' });
+        queueManager.add({ id: 'A' }); // cola: [A,B,C,D]
+        queueManager.move(0, 2);
+        const storedMove = JSON.parse(localStorage.getItem('musicQueue'));
+        assert(ids(storedMove) === 'B,C,A,D', 'move() persiste el nuevo orden en localStorage');
+
         out.textContent += `\nTOTAL: ${passed} passed, ${failed} failed\n`;
         document.title = failed === 0 ? 'TEST OK' : 'TEST FAIL';
     </script>
