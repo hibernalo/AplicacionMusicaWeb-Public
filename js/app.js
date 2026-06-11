@@ -254,9 +254,10 @@ class App {
             }
         });
 
-        // Encolar una canción desde una tarjeta
+        // Encolar una canción desde una tarjeta y abrir el panel de la cola
         document.addEventListener('addSongToQueue', (e) => {
             queueManager.add(e.detail.song);
+            this.uiManager.openQueuePanel();
         });
 
         // La cola cambió: repintar el panel
