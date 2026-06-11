@@ -1509,6 +1509,8 @@ class UIManager {
     renderQueuePanel({ currentSong, queue, upcoming }) {
         const body = document.getElementById('queuePanelBody');
         if (!body) return;
+        // Si hay un arrastre en curso, abortarlo antes de reconstruir el panel
+        if (this.queueDragState) this.cleanupQueueDrag();
         body.innerHTML = '';
         queue = Array.isArray(queue) ? queue : [];
         upcoming = Array.isArray(upcoming) ? upcoming : [];
@@ -1620,6 +1622,7 @@ class UIManager {
 
         if (opts.clickable) {
             row.addEventListener('click', () => {
+                if (row.dataset.dragJustEnded) return;
                 const event = new CustomEvent('queueRowClick', { detail: { songId: song.id } });
                 document.dispatchEvent(event);
             });
@@ -1649,6 +1652,7 @@ class UIManager {
      * Inicia el arrastre de una fila de la cola (Pointer Events: ratón y táctil).
      */
     startQueueDrag(e, row) {
+        if (this.queueDragState) return; // ya hay un arrastre activo (evita multitouch)
         e.preventDefault();
         e.stopPropagation();
         const container = row.parentElement;
@@ -1701,18 +1705,35 @@ class UIManager {
         return closest.element;
     }
 
+    /** Limpia el estado y los listeners de un arrastre de cola (sin emitir evento). */
+    cleanupQueueDrag() {
+        const state = this.queueDragState;
+        if (!state) return;
+        const { row, handle, pointerId, onMove, onUp } = state;
+        if (row) row.classList.remove('dragging');
+        if (handle) {
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            if (pointerId != null) {
+                try { handle.releasePointerCapture(pointerId); } catch (_) {}
+            }
+        }
+        this.queueDragState = null;
+    }
+
     /** Termina el arrastre y emite queueReorder si cambió la posición. */
     onQueueDragEnd(e) {
         const state = this.queueDragState;
         if (!state) return;
-        const { row, container, handle, pointerId, startIndex, moved, onMove, onUp } = state;
-        row.classList.remove('dragging');
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onUp);
-        try { handle.releasePointerCapture(pointerId); } catch (_) {}
+        const { row, container, startIndex, moved } = state;
         const endIndex = Array.from(container.children).indexOf(row);
-        this.queueDragState = null;
+        this.cleanupQueueDrag();
+        if (moved) {
+            // Evitar que el click sintético tras arrastrar reproduzca la canción
+            row.dataset.dragJustEnded = '1';
+            setTimeout(() => { delete row.dataset.dragJustEnded; }, 0);
+        }
         if (moved && endIndex !== -1 && endIndex !== startIndex) {
             document.dispatchEvent(new CustomEvent('queueReorder', { detail: { fromIndex: startIndex, toIndex: endIndex } }));
         }
