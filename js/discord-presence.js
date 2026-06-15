@@ -43,6 +43,18 @@ class DiscordPresenceClient {
                     console.log('[Discord Presence] Error de conexion');
                 }
             };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'command' && msg.data && msg.data.action === 'next') {
+                        const nextBtn = document.getElementById('nextBtn');
+                        if (nextBtn) nextBtn.click();
+                    }
+                } catch (e) {
+                    // Ignorar mensajes que no sean JSON valido
+                }
+            };
         } catch (e) {
             // El servidor Electron no esta corriendo, intentar reconectar
             this.scheduleReconnect();
