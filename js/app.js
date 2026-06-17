@@ -514,6 +514,45 @@ class App {
                 this.uiManager.closeQueuePanel();
             });
         }
+
+        // Menú lateral en móvil (hamburguesa + overlay)
+        this.setupMobileMenu();
+    }
+
+    /**
+     * Configura el menú lateral deslizante en móvil:
+     * botón hamburguesa, overlay y cierre automático al navegar.
+     */
+    setupMobileMenu() {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        const menuToggle = document.getElementById('menuToggle');
+        if (!sidebar || !overlay) return;
+
+        const openSidebar = () => {
+            sidebar.classList.add('open');
+            overlay.classList.add('active');
+        };
+        const closeSidebar = () => {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('active');
+        };
+
+        if (menuToggle) {
+            menuToggle.addEventListener('click', () => {
+                sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+            });
+        }
+
+        overlay.addEventListener('click', closeSidebar);
+
+        // Cerrar la sidebar al pulsar un enlace de navegación (excepto el
+        // desplegable "Source", que solo abre/cierra su submenú).
+        sidebar.addEventListener('click', (e) => {
+            const link = e.target.closest('.nav-link, .nav-submenu-link');
+            if (!link || link.id === 'navSource') return;
+            closeSidebar();
+        });
     }
 
     /**

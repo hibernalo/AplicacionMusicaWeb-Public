@@ -47,9 +47,14 @@ class DiscordPresenceClient {
             this.ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
-                    if (msg.type === 'command' && msg.data && msg.data.action === 'next') {
-                        const nextBtn = document.getElementById('nextBtn');
-                        if (nextBtn) nextBtn.click();
+                    if (msg.type === 'command' && msg.data) {
+                        if (msg.data.action === 'next') {
+                            const nextBtn = document.getElementById('nextBtn');
+                            if (nextBtn) nextBtn.click();
+                        } else if (msg.data.action === 'playpause') {
+                            const playPauseBtn = document.getElementById('playPauseBtn');
+                            if (playPauseBtn) playPauseBtn.click();
+                        }
                     }
                 } catch (e) {
                     // Ignorar mensajes que no sean JSON valido

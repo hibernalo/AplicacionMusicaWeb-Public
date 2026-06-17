@@ -24,6 +24,84 @@ class AudioPlayer {
         this.initializeElements();
         this.attachEventListeners();
         this.setVolume(this.volume);
+        this.setupMediaSession();
+    }
+
+    /**
+     * Configura los manejadores de la MediaSession API.
+     * Esto permite que el sistema operativo (pantalla de bloqueo / Centro de
+     * Control en iOS y Android, controles multimedia en escritorio) muestre
+     * los botones de control y reciba sus pulsaciones. Los metadatos
+     * (título, artista, carátula) se actualizan en updateMediaSession().
+     */
+    setupMediaSession() {
+        if (!('mediaSession' in navigator)) {
+            return;
+        }
+
+        const setHandler = (action, handler) => {
+            try {
+                navigator.mediaSession.setActionHandler(action, handler);
+            } catch (error) {
+                // Algunas acciones no están soportadas en todos los navegadores
+            }
+        };
+
+        setHandler('play', () => this.play());
+        setHandler('pause', () => this.pause());
+        setHandler('previoustrack', () => this.playPrevious());
+        setHandler('nexttrack', () => this.playNext());
+        setHandler('seekto', (details) => {
+            if (details.fastSeek && 'fastSeek' in this.audioElement) {
+                this.audioElement.fastSeek(details.seekTime);
+                return;
+            }
+            if (typeof details.seekTime === 'number') {
+                this.audioElement.currentTime = details.seekTime;
+            }
+        });
+    }
+
+    /**
+     * Actualiza los metadatos que muestra el sistema operativo en la pantalla
+     * de bloqueo / Centro de Control (título, artista, álbum y carátula).
+     * @param {Object} song - Objeto de canción
+     * @param {string|null} coverUrl - URL absoluta de la carátula (opcional)
+     */
+    updateMediaSession(song, coverUrl) {
+        if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') {
+            return;
+        }
+
+        // iOS necesita varias entradas de artwork con distintos tamaños para
+        // elegir la más adecuada; apuntamos todas a la misma URL de Storage.
+        const artwork = [];
+        if (coverUrl) {
+            ['96x96', '128x128', '192x192', '256x256', '384x384', '512x512'].forEach(sizes => {
+                artwork.push({ src: coverUrl, sizes });
+            });
+        }
+
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: song.title || 'Sin título',
+                artist: song.artist || 'Artista desconocido',
+                album: song.album || '',
+                artwork
+            });
+        } catch (error) {
+            console.error('Error actualizando MediaSession:', error);
+        }
+    }
+
+    /**
+     * Sincroniza el estado de reproducción (playing/paused) con la MediaSession.
+     * @param {string} state - 'playing', 'paused' o 'none'
+     */
+    updateMediaSessionPlaybackState(state) {
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = state;
+        }
     }
 
     /**
@@ -558,12 +636,16 @@ class AudioPlayer {
                 const coverUrl = await storageService.getCoverUrl(song.coverPath);
                 this.currentCover.src = coverUrl;
                 this.currentCover.style.display = 'block';
+                // Pasar la carátula al sistema operativo (pantalla de bloqueo iOS, etc.)
+                this.updateMediaSession(song, coverUrl);
             } catch (error) {
                 console.error('Error cargando cover:', error);
                 this.currentCover.style.display = 'none';
+                this.updateMediaSession(song, null);
             }
         } else {
             this.currentCover.style.display = 'none';
+            this.updateMediaSession(song, null);
         }
     }
 
@@ -839,10 +921,12 @@ class AudioPlayer {
             await this.audioElement.play();
             this.isPlaying = true;
             this.updatePlayPauseButton();
+            this.updateMediaSessionPlaybackState('playing');
         } catch (error) {
             console.error('Error reproduciendo:', error);
             this.isPlaying = false;
             this.updatePlayPauseButton();
+            this.updateMediaSessionPlaybackState('paused');
         }
     }
 
@@ -853,6 +937,7 @@ class AudioPlayer {
         this.audioElement.pause();
         this.isPlaying = false;
         this.updatePlayPauseButton();
+        this.updateMediaSessionPlaybackState('paused');
     }
 
     /**

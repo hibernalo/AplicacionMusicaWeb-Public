@@ -81,10 +81,19 @@
             </nav>
         </aside>
 
+        <!-- Overlay para cerrar la sidebar en móvil -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
         <!-- Main Content Area -->
         <div class="main-wrapper">
             <!-- Header -->
             <header class="header">
+                <!-- Botón de menú (solo móvil) -->
+                <button class="menu-toggle" id="menuToggle" title="Menú" aria-label="Abrir menú">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                    </svg>
+                </button>
                 <div class="search-container">
                     <div class="search-box">
                         <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">

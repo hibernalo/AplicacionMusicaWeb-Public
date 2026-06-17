@@ -565,10 +565,17 @@ class UIManager {
             card.appendChild(likedHeart);
         }
 
-        // Event listener para reproducir canción
+        // Reproducir al hacer click (salvo que provenga de una pulsación larga)
         card.addEventListener('click', () => {
+            if (card._suppressClick) {
+                card._suppressClick = false;
+                return;
+            }
             this.onSongClick(song);
         });
+
+        // Mantener pulsado (móvil o PC) para añadir la canción a la cola
+        this.attachLongPressToQueue(card, song);
 
         // Observar el contenedor en lugar de la imagen para mejor detección
         if (song.coverPath) {
@@ -730,10 +737,17 @@ class UIManager {
             card.appendChild(likedHeart);
         }
 
-        // Event listener para reproducir canción
+        // Reproducir al hacer click (salvo que provenga de una pulsación larga)
         card.addEventListener('click', () => {
+            if (card._suppressClick) {
+                card._suppressClick = false;
+                return;
+            }
             this.onSongClick(song);
         });
+
+        // Mantener pulsado (móvil o PC) para añadir la canción a la cola
+        this.attachLongPressToQueue(card, song);
 
         // Observar el contenedor en lugar de la imagen para mejor detección
         if (song.coverPath) {
@@ -794,6 +808,61 @@ class UIManager {
             img.src = storageService.getPlaceholderCoverUrl();
             img.style.display = 'block';
         }
+    }
+
+    /**
+     * Permite añadir una canción a la cola manteniendo pulsada su tarjeta.
+     * Funciona con ratón y con táctil mediante Pointer Events. Se cancela si
+     * el puntero se mueve (scroll/arrastre) para no interferir con el desplazamiento.
+     * @param {HTMLElement} card - Tarjeta de la canción
+     * @param {Object} song - Canción asociada
+     */
+    attachLongPressToQueue(card, song) {
+        const LONG_PRESS_MS = 500;
+        const MOVE_TOLERANCE = 10;
+        let timer = null;
+        let startX = 0;
+        let startY = 0;
+
+        const cancel = () => {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        };
+
+        card.addEventListener('pointerdown', (e) => {
+            // Solo el botón principal del ratón / un único toque
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            // No interferir con los botones de la tarjeta
+            if (e.target.closest('button')) return;
+
+            startX = e.clientX;
+            startY = e.clientY;
+            cancel();
+            timer = setTimeout(() => {
+                timer = null;
+                card._suppressClick = true; // evitar que el click reproduzca la canción
+                document.dispatchEvent(new CustomEvent('addSongToQueue', { detail: { song } }));
+                // Feedback visual y háptico
+                card.classList.add('queued-flash');
+                setTimeout(() => card.classList.remove('queued-flash'), 450);
+                if (navigator.vibrate) navigator.vibrate(30);
+            }, LONG_PRESS_MS);
+        });
+
+        // Cancelar si el puntero se desplaza (el usuario está haciendo scroll o arrastrando)
+        card.addEventListener('pointermove', (e) => {
+            if (!timer) return;
+            if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE ||
+                Math.abs(e.clientY - startY) > MOVE_TOLERANCE) {
+                cancel();
+            }
+        });
+
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach((evt) => {
+            card.addEventListener(evt, cancel);
+        });
     }
 
     /**
