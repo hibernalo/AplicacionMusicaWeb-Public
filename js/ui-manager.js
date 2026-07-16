@@ -13,6 +13,9 @@ class UIManager {
         this.searchInput = document.getElementById('searchInput');
         this.searchClear = document.getElementById('searchClear');
         this.songCounter = document.getElementById('songCounter');
+        this.playViewBar = document.getElementById('playViewBar');
+        this.playViewBtn = document.getElementById('playViewBtn');
+        this.playViewBtnLabel = document.getElementById('playViewBtnLabel');
         this.intersectionObserver = null;
         this.imageLoadPromises = new Map();
         this.renderedSongs = new Set();
@@ -158,6 +161,51 @@ class UIManager {
             // Actualizar contador de canciones
             this.updateSongCounter(e.detail.songs.length);
         });
+
+        // Botón "Escuchar" de la vista actual
+        if (this.playViewBtn) {
+            this.playViewBtn.addEventListener('click', () => {
+                document.dispatchEvent(new CustomEvent('playViewRequested'));
+            });
+        }
+    }
+
+    /**
+     * Devuelve el texto del botón "Escuchar" según el tipo de vista actual.
+     * @returns {string} Etiqueta del botón
+     */
+    getPlayViewLabel() {
+        switch (this.currentFilterType) {
+            case 'playlist': return 'Escuchar playlist';
+            case 'artist': return 'Escuchar artista';
+            case 'album': return 'Escuchar álbum';
+            case 'genre': return 'Escuchar género';
+            case 'source': return 'Escuchar source';
+            case 'year': return 'Escuchar año';
+            case 'liked': return 'Escuchar favoritas';
+            case 'recent': return 'Escuchar recientes';
+            default: return 'Escuchar';
+        }
+    }
+
+    /**
+     * Muestra la barra con el botón "Escuchar" para la vista actual.
+     */
+    showPlayViewBar() {
+        if (!this.playViewBar) return;
+        if (this.playViewBtnLabel) {
+            this.playViewBtnLabel.textContent = this.getPlayViewLabel();
+        }
+        this.playViewBar.style.display = 'flex';
+    }
+
+    /**
+     * Oculta la barra con el botón "Escuchar" (vistas sin lista reproducible).
+     */
+    hidePlayViewBar() {
+        if (this.playViewBar) {
+            this.playViewBar.style.display = 'none';
+        }
     }
 
     /**
@@ -355,9 +403,12 @@ class UIManager {
         
         if (songs.length === 0) {
             this.showNoResultsMessage();
+            this.hidePlayViewBar();
         } else {
             this.hideNoResultsMessage();
             this.appendSongs(songs);
+            // Hay canciones reproducibles: mostrar el botón "Escuchar" de la vista
+            this.showPlayViewBar();
             // Verificar imágenes visibles después de un pequeño delay para asegurar que el DOM esté listo
             setTimeout(() => this.checkVisibleImages(), 100);
         }
@@ -885,12 +936,11 @@ class UIManager {
             card.classList.remove('playing');
         });
 
-        // Agregar clase playing a la card actual
+        // Agregar clase playing a la card actual (sin mover la página: en
+        // aleatorio la canción puede no estar visible y no queremos hacer scroll)
         const currentCard = document.querySelector(`[data-song-id="${songId}"]`);
         if (currentCard) {
             currentCard.classList.add('playing');
-            // Scroll suave a la canción actual
-            currentCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
         this.currentPlayingId = songId;
@@ -970,6 +1020,8 @@ class UIManager {
         // Limpiar la lista actual y el set de canciones renderizadas
         this.songListContainer.innerHTML = '';
         this.renderedSongs.clear();
+        // Vista de items de filtro: no hay lista reproducible
+        this.hidePlayViewBar();
         
         // Remover vista de lista cuando se muestran filtros (mantener vista por defecto)
         this.applyViewMode(false);
@@ -1030,6 +1082,8 @@ class UIManager {
         // Igual que cuando se muestran los artistas - solo cards, sin canciones
         this.songListContainer.innerHTML = '';
         this.renderedSongs.clear();
+        // Vista de cards de source: no hay lista reproducible
+        this.hidePlayViewBar();
         
         // Remover vista de lista cuando se muestran filtros (mantener vista por defecto)
         this.applyViewMode(false);
@@ -1064,6 +1118,8 @@ class UIManager {
         this.songListContainer.innerHTML = '';
         this.renderedSongs.clear();
         this.hideNoResultsMessage();
+        // Vista de cards de playlist: no hay lista reproducible
+        this.hidePlayViewBar();
 
         // Crear botón de crear playlist como primer elemento
         const createCard = document.createElement('div');
@@ -1116,6 +1172,8 @@ class UIManager {
      * @param {Array} genres - Array de géneros
      */
     showSourceGenreSelector(genres) {
+        // Selector de géneros para sources: no hay lista reproducible
+        this.hidePlayViewBar();
         const container = document.createElement('div');
         container.className = 'source-genre-selector-container';
         container.innerHTML = `

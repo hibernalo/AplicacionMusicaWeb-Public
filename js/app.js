@@ -19,6 +19,59 @@ class App {
         this.currentNavMenu = 'inicio'; // 'inicio', 'liked', 'genre', 'source', 'artist', 'album', 'year'
         this.sourceGenreId = null; // ID del género seleccionado cuando estamos en sources
         this.currentUser = null; // Usuario autenticado actual
+
+        // Cola de reproducción desacoplada de la navegación:
+        // - currentViewId: identifica la vista que se está mostrando ahora mismo.
+        // - playbackViewId: identifica la vista cuyas canciones forman la cola que suena.
+        // - currentDisplayList: lista de canciones de la vista mostrada (para reproducir).
+        // Cambiar de menú NO toca la cola; la cola solo cambia al reproducir una
+        // canción o al pulsar el botón "Escuchar" de la vista.
+        this.currentViewId = 'inicio';
+        this.playbackViewId = null;
+        this.currentDisplayList = [];
+    }
+
+    /**
+     * Sincroniza la cola del reproductor con la vista que se muestra actualmente.
+     * Solo reconstruye la cola si la vista cambió respecto a la que está sonando,
+     * o si la canción que se va a reproducir no está en la cola actual. Así se
+     * preserva el orden (incluido el shuffle) al pulsar canciones de la misma vista.
+     * @param {Object} [song] - Canción que se va a reproducir (opcional)
+     */
+    syncPlaybackQueueWithView(song = null) {
+        const list = (this.currentDisplayList && this.currentDisplayList.length > 0)
+            ? this.currentDisplayList
+            : this.songListManager.getPlaybackList();
+
+        const queueHasSong = song && this.audioPlayer.songList.some(s => s.id === song.id);
+        const viewChanged = this.playbackViewId !== this.currentViewId;
+
+        if (viewChanged || !queueHasSong) {
+            this.audioPlayer.setSongList(list);
+            this.playbackViewId = this.currentViewId;
+        }
+    }
+
+    /**
+     * Reproduce la lista de la vista actual desde el principio (botón "Escuchar").
+     * Siempre fija la cola a la vista mostrada, aunque ya hubiera otra sonando.
+     */
+    playCurrentView() {
+        const list = (this.currentDisplayList && this.currentDisplayList.length > 0)
+            ? this.currentDisplayList
+            : this.songListManager.getPlaybackList();
+
+        if (!list || list.length === 0) {
+            return;
+        }
+
+        this.audioPlayer.setSongList(list);
+        this.playbackViewId = this.currentViewId;
+
+        const startIndex = this.audioPlayer.isShuffle
+            ? Math.floor(Math.random() * list.length)
+            : 0;
+        this.audioPlayer.playSong(list[startIndex], startIndex);
     }
 
     /**
@@ -57,8 +110,11 @@ class App {
             // Cargar canciones iniciales
             const initialSongs = await this.songListManager.loadInitialSongs(50, 'rand');
             
-            // Establecer lista de canciones en el reproductor
-            this.audioPlayer.setSongList(this.songListManager.getAllSongs());
+            // Establecer lista de canciones en el reproductor (pool completo en aleatorio)
+            this.audioPlayer.setSongList(this.songListManager.getPlaybackList());
+            this.currentViewId = 'inicio';
+            this.playbackViewId = 'inicio';
+            this.currentDisplayList = this.songListManager.getPlaybackList();
 
             // Ocultar indicador de carga
             this.uiManager.hideLoading();
@@ -111,8 +167,16 @@ class App {
         // Cuando se selecciona una canción desde la UI
         document.addEventListener('songSelected', async (e) => {
             const { song } = e.detail;
-            const index = this.songListManager.getSongIndex(song.id);
-            await this.audioPlayer.playSong(song, index);
+            // Al reproducir desde una vista, la cola pasa a ser la de esa vista
+            // (salvo que ya estés sonando dentro de ella). Cambiar de menú sin
+            // reproducir no llega aquí, así que la cola no se altera por navegar.
+            this.syncPlaybackQueueWithView(song);
+            await this.audioPlayer.playSong(song, -1);
+        });
+
+        // Botón "Escuchar": fija la cola a la vista actual y empieza a reproducir
+        document.addEventListener('playViewRequested', () => {
+            this.playCurrentView();
         });
 
         // Cuando se necesita cargar más canciones
@@ -135,9 +199,16 @@ class App {
 
             try {
                 const newSongs = await this.songListManager.loadMoreSongs();
-                
-                // Actualizar lista en el reproductor
-                this.audioPlayer.setSongList(this.songListManager.getAllSongs());
+
+                // Actualizar la lista mostrada de la vista actual
+                this.currentDisplayList = this.songListManager.getPlaybackList();
+
+                // Solo hacer crecer la cola si la vista que estás paginando es la
+                // que está sonando ahora mismo. Si suena otra (p. ej. una playlist)
+                // y estás ojeando "inicio", la cola NO se toca.
+                if (this.playbackViewId === this.currentViewId) {
+                    this.audioPlayer.setSongList(this.currentDisplayList);
+                }
 
                 if (newSongs.length === 0) {
                     // No hay más canciones
@@ -218,7 +289,9 @@ class App {
                                 detail: { songs: allSongs }
                             });
                             document.dispatchEvent(event);
-                            this.audioPlayer.setSongList(allSongs);
+                            // Búsqueda vacía: volvemos a la lista base de la vista.
+                            // No tocamos la cola; solo actualizamos la lista mostrada.
+                            this.currentDisplayList = this.songListManager.getPlaybackList();
                         } else {
                             // Mostrar todas las canciones cargadas
                             const allSongs = this.songListManager.getAllSongs();
@@ -226,7 +299,7 @@ class App {
                                 detail: { songs: allSongs }
                             });
                             document.dispatchEvent(event);
-                            this.audioPlayer.setSongList(allSongs);
+                            this.currentDisplayList = this.songListManager.getPlaybackList();
                         }
                     } else {
                         // Realizar búsqueda en canciones
@@ -235,7 +308,10 @@ class App {
                             detail: { songs: searchResults }
                         });
                         document.dispatchEvent(event);
-                        this.audioPlayer.setSongList(searchResults);
+                        // Los resultados de búsqueda son una "vista" propia: al pulsar
+                        // un resultado, la cola pasará a ser esta lista de resultados.
+                        this.currentDisplayList = searchResults;
+                        this.currentViewId = `search:${query.trim().toLowerCase()}`;
                     }
                 }
             } catch (error) {
@@ -247,7 +323,7 @@ class App {
                         detail: { songs: allSongs }
                     });
                     document.dispatchEvent(event);
-                    this.audioPlayer.setSongList(allSongs);
+                    this.currentDisplayList = this.songListManager.getPlaybackList();
                 }
             } finally {
                 this.uiManager.hideLoading();
@@ -329,7 +405,9 @@ class App {
                 
                 try {
                     await this.songListManager.loadInitialSongs(50, 'rand');
-                    this.audioPlayer.setSongList(this.songListManager.getAllSongs());
+                    // Navegar a "inicio" solo cambia la vista mostrada, NO la cola.
+                    this.currentViewId = 'inicio';
+                    this.currentDisplayList = this.songListManager.getPlaybackList();
                 } catch (error) {
                     console.error('Error cargando canciones iniciales:', error);
                     this.uiManager.hideLoading();
@@ -369,7 +447,9 @@ class App {
                 
                 try {
                     await this.songListManager.loadRecentSongs();
-                    this.audioPlayer.setSongList(this.songListManager.getAllSongs());
+                    // Navegar a "recientes" solo cambia la vista mostrada, NO la cola.
+                    this.currentViewId = 'recent';
+                    this.currentDisplayList = this.songListManager.getPlaybackList();
                 } catch (error) {
                     console.error('Error cargando canciones recientes:', error);
                     this.uiManager.hideLoading();
@@ -778,7 +858,9 @@ class App {
                 const songs = await this.songListManager.loadFilteredSongs('liked');
                 // Las canciones se renderizan automáticamente a través del evento 'songsLoaded'
                 // El loading se oculta en el evento 'songsLoaded' cuando isInitial es true
-                this.audioPlayer.setSongList(this.songListManager.getAllSongs());
+                // Solo cambia la vista mostrada; la cola se fija al reproducir.
+                this.currentViewId = 'liked';
+                this.currentDisplayList = this.songListManager.getPlaybackList();
                 console.log(`Canciones favoritas cargadas: ${songs.length} canciones`);
                 
                 // Si no hay canciones, asegurarse de ocultar el loading
@@ -837,8 +919,10 @@ class App {
             const songs = await this.songListManager.loadFilteredSongs(filterType, filterValue, count, filterItemId);
             // Las canciones se renderizan automáticamente a través del evento 'songsLoaded'
             // El loading se oculta en el evento 'songsLoaded' cuando isInitial es true
-            // Solo necesitamos actualizar la lista en el reproductor
-            this.audioPlayer.setSongList(this.songListManager.getAllSongs());
+            // Seleccionar un filtro solo cambia la vista mostrada; la cola se fija
+            // al reproducir una canción o al pulsar "Escuchar".
+            this.currentViewId = `${filterType}:${filterItemId || filterValue}`;
+            this.currentDisplayList = this.songListManager.getPlaybackList();
             console.log(`handleFilterItemSelected: Canciones filtradas cargadas: ${songs.length} canciones para ${filterType} = ${filterValue}`);
         } catch (error) {
             console.error(`handleFilterItemSelected: Error cargando canciones filtradas ${filterType}:`, error);
@@ -884,9 +968,11 @@ class App {
         this.songListManager.reset();
         this.songListManager.currentFilterType = null;
         this.songListManager.currentFilterValue = null;
-        
-        // Limpiar la lista de canciones del reproductor también
-        this.audioPlayer.setSongList([]);
+
+        // Estamos mostrando cards de sources (no canciones reproducibles): esta
+        // vista no tiene lista que reproducir. NO tocamos la cola que está sonando.
+        this.currentViewId = `source-genres:${genreId}`;
+        this.currentDisplayList = [];
 
         this.uiManager.showLoading();
 

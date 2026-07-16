@@ -20,6 +20,9 @@ class AudioPlayer {
         this.volume = savedVolume !== null ? parseFloat(savedVolume) : 0.7;
         this.isShuffle = false;
         this.repeatMode = 'off'; // 'off', 'all', 'one'
+        // Saltos consecutivos por canciones rotas (sin archivo en Storage).
+        // Sirve para auto-saltar a la siguiente sin entrar en bucle infinito.
+        this.consecutiveLoadFailures = 0;
 
         this.initializeElements();
         this.attachEventListeners();
@@ -603,11 +606,28 @@ class AudioPlayer {
             await this.audioElement.load();
             await this.play();
 
+            // Carga correcta: reiniciar el contador de fallos
+            this.consecutiveLoadFailures = 0;
+
             // Disparar evento personalizado
             this.dispatchEvent('songChanged', { song, index: this.currentIndex });
         } catch (error) {
             console.error('Error reproduciendo canción:', error);
-            alert('Error al cargar la canción. Por favor, intenta de nuevo.');
+
+            // La canción está rota (su archivo no existe en Storage). En vez de
+            // bloquear con un error, saltar automáticamente a la siguiente.
+            // Limitamos los saltos consecutivos para no entrar en bucle si hay
+            // muchas canciones rotas seguidas.
+            this.consecutiveLoadFailures++;
+            const maxSkips = Math.min(25, this.songList.length || 1);
+            const haySiguiente = this.songList.length > 1 || !queueManager.isEmpty();
+
+            if (this.consecutiveLoadFailures < maxSkips && haySiguiente) {
+                this.playNext();
+            } else {
+                this.consecutiveLoadFailures = 0;
+                alert('No se pudo cargar la canción (archivo no disponible).');
+            }
         }
     }
 

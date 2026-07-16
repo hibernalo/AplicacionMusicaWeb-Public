@@ -29,6 +29,22 @@ const SONGS_FOLDER = 'C:/Users/hiber/Music/CancionesNuevas';
 const COVERS_FOLDER = 'C:/Users/hiber/Music/CoversNuevas';
 const STORAGE_BUCKET = 'aplicacionmusicakt.firebasestorage.app';
 
+// Genero y fuente a asignar a las canciones subidas.
+// Se pueden pasar por linea de comandos:
+//   node scripts/upload-songs.js --genre game --source deltarune
+function getArg(name, fallback) {
+    const idx = process.argv.indexOf(`--${name}`);
+    return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : fallback;
+}
+const GENRE = getArg('genre', '');
+const SOURCE = getArg('source', '');
+// Playlists (por nombre, separadas por coma) donde se agregaran las canciones subidas.
+//   node scripts/upload-songs.js --playlists JoelNuevas,JoelYT1
+const PLAYLISTS = getArg('playlists', '')
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean);
+
 // Inicializar Firebase Admin
 const serviceAccount = require(SERVICE_ACCOUNT_PATH);
 admin.initializeApp({
@@ -147,8 +163,8 @@ async function processSong(audioFile) {
         artist: artist,
         album: album,
         year: year,
-        genre: '',
-        source: '',
+        genre: GENRE,
+        source: SOURCE,
         audioPath: audioStoragePath,
         coverPath: coverStoragePath,
         rand: Math.random(),
@@ -158,13 +174,61 @@ async function processSong(audioFile) {
 
     await createSongDocument(songData);
     console.log(`  OK - "${title}" subida correctamente`);
+    return title;
+}
+
+/**
+ * Agrega una lista de titulos a las playlists indicadas (por nombre).
+ * No duplica titulos ya presentes. Actualiza cada playlist una sola vez.
+ */
+async function addTitlesToPlaylists(titles, playlistNames) {
+    if (titles.length === 0 || playlistNames.length === 0) return;
+
+    console.log('\n=== Agregando canciones a playlists ===');
+    for (const name of playlistNames) {
+        try {
+            const snapshot = await db.collection('playlists')
+                .where('name', '==', name)
+                .limit(1)
+                .get();
+
+            if (snapshot.empty) {
+                console.error(`  Playlist "${name}" no encontrada. Omitida.`);
+                continue;
+            }
+
+            const doc = snapshot.docs[0];
+            const existing = doc.data().songs || [];
+            const set = new Set(existing);
+            let agregadas = 0;
+            for (const t of titles) {
+                if (!set.has(t)) {
+                    set.add(t);
+                    agregadas++;
+                }
+            }
+
+            if (agregadas === 0) {
+                console.log(`  "${name}": sin cambios (todas ya estaban).`);
+                continue;
+            }
+
+            await doc.ref.update({ songs: Array.from(set) });
+            console.log(`  "${name}": ${agregadas} cancion(es) agregada(s) (total ${set.size}).`);
+        } catch (error) {
+            console.error(`  ERROR actualizando playlist "${name}":`, error.message);
+        }
+    }
 }
 
 /**
  * Funcion principal
  */
 async function main() {
-    console.log('=== Script de subida de canciones ===\n');
+    console.log('=== Script de subida de canciones ===');
+    console.log(`  Genero: ${GENRE || '(vacio)'}`);
+    console.log(`  Fuente: ${SOURCE || '(vacio)'}`);
+    console.log(`  Playlists: ${PLAYLISTS.length ? PLAYLISTS.join(', ') : '(ninguna)'}\n`);
 
     // Validar que las carpetas existen
     if (!fs.existsSync(SONGS_FOLDER)) {
@@ -194,10 +258,12 @@ async function main() {
     // Procesar cada cancion
     let exitosas = 0;
     let fallidas = 0;
+    const titulosSubidos = [];
 
     for (const audioFile of audioFiles) {
         try {
-            await processSong(audioFile);
+            const title = await processSong(audioFile);
+            if (title) titulosSubidos.push(title);
             exitosas++;
         } catch (error) {
             console.error(`  ERROR procesando ${audioFile}:`, error.message);
@@ -209,6 +275,9 @@ async function main() {
     console.log(`  Exitosas: ${exitosas}`);
     console.log(`  Fallidas: ${fallidas}`);
     console.log(`  Total: ${audioFiles.length}`);
+
+    // Agregar las canciones subidas a las playlists indicadas
+    await addTitlesToPlaylists(titulosSubidos, PLAYLISTS);
 
     process.exit(0);
 }

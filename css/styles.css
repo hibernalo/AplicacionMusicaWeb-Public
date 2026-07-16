@@ -400,6 +400,42 @@ body {
     padding-bottom: calc(90px + 24px);
 }
 
+/* Barra con el botón "Escuchar" de la vista actual */
+.play-view-bar {
+    position: sticky;
+    top: -24px; /* compensa el padding-top del contenedor para quedar pegado arriba */
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    padding: 12px 0;
+    margin: -24px 0 8px;
+    background: linear-gradient(var(--background) 70%, transparent);
+}
+
+.play-view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border: none;
+    border-radius: 999px;
+    background-color: var(--primary-color);
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.1s ease, background-color 0.15s ease;
+}
+
+.play-view-btn:hover {
+    background-color: var(--primary-dark);
+    transform: scale(1.04);
+}
+
+.play-view-btn:active {
+    transform: scale(0.98);
+}
+
 .song-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

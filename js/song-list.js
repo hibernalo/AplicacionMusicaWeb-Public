@@ -20,6 +20,11 @@ class SongListManager {
         this.currentPlaylistId = null; // ID del documento de la playlist actual
         this.filterItems = []; // Lista de items de filtro (artistas, álbumes, etc.)
         this.recentOffset = 0; // Offset para paginación de canciones recientes
+
+        // Aleatoriedad real (modo 'rand'): se trae toda la colección una vez,
+        // se baraja en cliente y se pagina localmente desde este pool.
+        this.randomPool = [];
+        this.randomPoolOffset = 0;
     }
 
     /**
@@ -38,23 +43,49 @@ class SongListManager {
         this.lastDoc = null;
         this.hasMore = true;
         this.isLoading = true;
+        this.randomPool = [];
+        this.randomPoolOffset = 0;
 
         try {
-            const result = await firestoreService.getSongsPaginated(
-                this.pageSize,
-                this.lastDoc,
-                this.orderBy
-            );
+            if (this.orderBy === 'rand') {
+                // Aleatoriedad real: traer todas las canciones, mezclarlas en
+                // cliente con Fisher-Yates (semilla nueva en cada carga) y
+                // paginar localmente. Así el orden es completamente distinto en
+                // cada recarga, sin depender del campo fijo `rand` de Firestore.
+                const all = await firestoreService.getAllSongs();
+                // Excluir del inicio las canciones de sources ocultos (p. ej. RWDY)
+                // y las marcadas explícitamente con hideFromHome.
+                // Comparación insensible a mayúsculas/espacios por robustez.
+                const filtered = all.filter(song => {
+                    if (song.hideFromHome === true) return false;
+                    const src = (song.source || '').trim().toUpperCase();
+                    return !SongListManager.HIDDEN_SOURCES.includes(src);
+                });
+                this.randomPool = firestoreService.shuffleArray(filtered);
+                this.randomPoolOffset = Math.min(this.pageSize, this.randomPool.length);
+                this.allSongs = this.randomPool.slice(0, this.randomPoolOffset);
+                this.lastDoc = null;
+                this.hasMore = this.randomPool.length > this.randomPoolOffset;
+            } else {
+                const result = await firestoreService.getSongsPaginated(
+                    this.pageSize,
+                    this.lastDoc,
+                    this.orderBy
+                );
 
-            this.allSongs = result.songs;
-            this.lastDoc = result.lastDoc;
-            this.hasMore = result.hasMore;
+                this.allSongs = result.songs;
+                this.lastDoc = result.lastDoc;
+                this.hasMore = result.hasMore;
+            }
             this.currentPage = 1;
 
             this.isLoading = false;
             this.dispatchEvent('songsLoaded', {
                 songs: this.allSongs,
                 isInitial: true,
+                // En modo aleatorio el total real es el del pool ya filtrado
+                // (sin sources ocultos), no el conteo general de la colección.
+                totalSongs: this.orderBy === 'rand' ? this.randomPool.length : undefined,
                 filterType: null,
                 filterValue: null
             });
@@ -84,6 +115,31 @@ class SongListManager {
         this.isLoading = true;
 
         try {
+            // Modo aleatorio: paginar localmente desde el pool ya barajado.
+            if (this.orderBy === 'rand') {
+                const next = this.randomPool.slice(
+                    this.randomPoolOffset,
+                    this.randomPoolOffset + this.pageSize
+                );
+                this.randomPoolOffset += next.length;
+                this.hasMore = this.randomPoolOffset < this.randomPool.length;
+
+                if (next.length > 0) {
+                    this.allSongs = [...this.allSongs, ...next];
+                    this.currentPage++;
+                    this.dispatchEvent('songsLoaded', {
+                        songs: next,
+                        isInitial: false,
+                        totalSongs: this.allSongs.length,
+                        filterType: this.currentFilterType,
+                        filterValue: this.currentFilterValue
+                    });
+                }
+
+                this.isLoading = false;
+                return next;
+            }
+
             const result = await firestoreService.getSongsPaginated(
                 this.pageSize,
                 this.lastDoc,
@@ -268,6 +324,23 @@ class SongListManager {
         this.currentFilterValue = null;
         this.filterItems = [];
         this.recentOffset = 0;
+        this.randomPool = [];
+        this.randomPoolOffset = 0;
+    }
+
+    /**
+     * Devuelve la lista que debe usar el reproductor para navegar/shuffle.
+     * En el inicio aleatorio (modo 'rand' sin filtro) devuelve TODAS las
+     * canciones ya barajadas (el pool completo), aunque en pantalla solo se
+     * muestren las primeras páginas. Así el shuffle puede elegir entre todas
+     * sin necesidad de hacer scroll ni cargar nada extra.
+     * @returns {Array} Lista de canciones para reproducción
+     */
+    getPlaybackList() {
+        if (this.orderBy === 'rand' && !this.hasActiveFilter() && this.randomPool.length > 0) {
+            return this.randomPool;
+        }
+        return this.allSongs;
     }
 
     /**
@@ -649,5 +722,9 @@ class SongListManager {
         document.dispatchEvent(event);
     }
 }
+
+// Sources que NO deben aparecer en el inicio (en mayúsculas, sin espacios).
+// Estas canciones siguen siendo accesibles desde el filtro de Source.
+SongListManager.HIDDEN_SOURCES = ['RWBY'];
 
 export default SongListManager;
