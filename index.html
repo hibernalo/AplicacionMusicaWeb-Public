@@ -77,6 +77,14 @@
                         </ul>
                         <div class="nav-submenu-divider"></div>
                     </li>
+                    <!-- Playlists ancladas del usuario: los <li> se insertan aquí
+                         dinámicamente (justo antes del botón "Anclar playlist"). -->
+                    <li class="nav-item" id="navAddPinnedItem">
+                        <a href="#" class="nav-link" id="navAddPinned">
+                            <span class="nav-icon">📌</span>
+                            <span class="nav-text">Anclar playlist</span>
+                        </a>
+                    </li>
                 </ul>
             </nav>
         </aside>
@@ -435,6 +443,22 @@
                 <div class="auth-error" id="registerError"></div>
                 <button type="submit" class="auth-submit-btn">Crear cuenta</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal: anclar playlists a la barra lateral -->
+    <div class="pinned-modal" id="pinnedModal" style="display: none;">
+        <div class="pinned-modal-overlay" id="pinnedModalOverlay"></div>
+        <div class="pinned-modal-content">
+            <button class="pinned-modal-close" id="pinnedModalClose">&times;</button>
+            <h2 class="pinned-modal-title">Anclar playlists a la barra</h2>
+            <p class="pinned-modal-subtitle">
+                Máximo 5 ancladas. El interruptor 🏠 hace que esa playlist se abra
+                al entrar (solo una a la vez).
+            </p>
+            <div class="pinned-modal-list" id="pinnedModalList">
+                <!-- Filas de playlists renderizadas dinámicamente -->
+            </div>
         </div>
     </div>
 </div>

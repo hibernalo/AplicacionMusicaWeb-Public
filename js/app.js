@@ -29,7 +29,16 @@ class App {
         this.currentViewId = 'inicio';
         this.playbackViewId = null;
         this.currentDisplayList = [];
+
+        // Playlists ancladas a la barra lateral (por usuario, máx 5) y playlist
+        // de arranque (la que se abre al entrar en vez de Inicio).
+        this.pinnedPlaylists = [];       // [{ id, name }]
+        this.startupPlaylistId = null;   // id o null
+        this.startupRedirectDone = false; // evita redirigir más de una vez por carga
     }
+
+    // Número máximo de playlists ancladas a la barra.
+    static get MAX_PINNED() { return 5; }
 
     /**
      * Sincroniza la cola del reproductor con la vista que se muestra actualmente.
@@ -595,8 +604,282 @@ class App {
             });
         }
 
+        // Playlists ancladas a la barra
+        this.setupPinnedPlaylists();
+
         // Menú lateral en móvil (hamburguesa + overlay)
         this.setupMobileMenu();
+    }
+
+    /**
+     * Configura el botón "Anclar playlist" y el modal para anclar playlists.
+     */
+    setupPinnedPlaylists() {
+        const navAddPinned = document.getElementById('navAddPinned');
+        if (navAddPinned) {
+            navAddPinned.addEventListener('click', async (e) => {
+                e.preventDefault();
+                if (!this.currentUser) {
+                    alert('Debes iniciar sesión para anclar playlists.');
+                    return;
+                }
+                await this.openPinnedModal();
+            });
+        }
+
+        const modal = document.getElementById('pinnedModal');
+        const closeBtn = document.getElementById('pinnedModalClose');
+        const overlay = document.getElementById('pinnedModalOverlay');
+        const hide = () => { if (modal) modal.style.display = 'none'; };
+        if (closeBtn) closeBtn.addEventListener('click', hide);
+        if (overlay) overlay.addEventListener('click', hide);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal && modal.style.display !== 'none') hide();
+        });
+
+        // Delegación de eventos en la lista del modal (anclar / abrir al inicio)
+        const list = document.getElementById('pinnedModalList');
+        if (list) {
+            list.addEventListener('click', async (e) => {
+                const pinBtn = e.target.closest('[data-action="toggle-pin"]');
+                if (pinBtn) {
+                    await this.togglePin(pinBtn.dataset.id, pinBtn.dataset.name);
+                    return;
+                }
+                const startBtn = e.target.closest('[data-action="toggle-startup"]');
+                if (startBtn) {
+                    await this.toggleStartup(startBtn.dataset.id);
+                }
+            });
+        }
+    }
+
+    /**
+     * Carga las preferencias del usuario (ancladas + arranque) y refresca la barra.
+     */
+    async loadUserPinnedPrefs() {
+        if (!this.currentUser) {
+            this.pinnedPlaylists = [];
+            this.startupPlaylistId = null;
+            this.renderPinnedPlaylists();
+            return;
+        }
+        try {
+            const prefs = await firestoreService.getUserPrefs(this.currentUser.uid);
+            this.pinnedPlaylists = prefs.pinnedPlaylists || [];
+            this.startupPlaylistId = prefs.startupPlaylistId || null;
+        } catch (error) {
+            console.error('Error cargando preferencias de playlists ancladas:', error);
+            this.pinnedPlaylists = [];
+            this.startupPlaylistId = null;
+        }
+        this.renderPinnedPlaylists();
+    }
+
+    /**
+     * Renderiza los enlaces de playlists ancladas en la barra lateral, justo
+     * antes del botón "Anclar playlist".
+     */
+    renderPinnedPlaylists() {
+        const anchor = document.getElementById('navAddPinnedItem');
+        if (!anchor || !anchor.parentNode) return;
+        const menu = anchor.parentNode;
+
+        // Eliminar los enlaces anclados anteriores
+        menu.querySelectorAll('.nav-item-pinned').forEach(li => li.remove());
+
+        // Insertar los actuales en orden, antes del botón "Añadir playlist"
+        this.pinnedPlaylists.forEach(pl => {
+            const li = document.createElement('li');
+            li.className = 'nav-item nav-item-pinned';
+            li.dataset.playlistId = pl.id;
+            const isStartup = this.startupPlaylistId === pl.id;
+            li.innerHTML = `
+                <a href="#" class="nav-link pinned-playlist-link" title="${this.escapeHtml(pl.name)}">
+                    <span class="nav-icon">${isStartup ? '🏠' : '📌'}</span>
+                    <span class="nav-text">${this.escapeHtml(pl.name)}</span>
+                </a>`;
+            const link = li.querySelector('.pinned-playlist-link');
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                await this.openPinnedPlaylist(pl.id, pl.name);
+            });
+            menu.insertBefore(li, anchor);
+        });
+    }
+
+    /**
+     * Abre la vista de una playlist anclada (equivalente a seleccionarla en el
+     * menú de Playlists).
+     * @param {string} playlistId
+     * @param {string} playlistName
+     */
+    async openPinnedPlaylist(playlistId, playlistName) {
+        this.currentNavMenu = 'playlist';
+        this.sourceGenreId = null;
+        const link = document.querySelector(
+            `.nav-item-pinned[data-playlist-id="${playlistId}"] .nav-link`
+        );
+        if (link) this.setActiveNavLink(link);
+        await this.handleFilterItemSelected('playlist', playlistName, null, playlistId);
+    }
+
+    /**
+     * Abre el modal de gestión de playlists ancladas y lo rellena.
+     */
+    async openPinnedModal() {
+        const modal = document.getElementById('pinnedModal');
+        const list = document.getElementById('pinnedModalList');
+        if (!modal || !list) return;
+        list.innerHTML = '<p class="pinned-modal-empty">Cargando playlists...</p>';
+        modal.style.display = 'flex';
+        try {
+            const playlists = await firestoreService.getPlaylistsWithCounts();
+            this.renderPinnedModalList(playlists);
+        } catch (error) {
+            console.error('Error cargando playlists para el modal:', error);
+            list.innerHTML = '<p class="pinned-modal-empty">Error al cargar las playlists.</p>';
+        }
+    }
+
+    /**
+     * Renderiza las filas del modal (una por playlist) con sus controles.
+     * @param {Array} playlists - salida de getPlaylistsWithCounts ({key, id, count})
+     */
+    renderPinnedModalList(playlists) {
+        const list = document.getElementById('pinnedModalList');
+        if (!list) return;
+        if (!playlists || playlists.length === 0) {
+            list.innerHTML = '<p class="pinned-modal-empty">No hay playlists creadas.</p>';
+            return;
+        }
+
+        const pinnedIds = new Set(this.pinnedPlaylists.map(p => p.id));
+        const limiteAlcanzado = this.pinnedPlaylists.length >= App.MAX_PINNED;
+
+        list.innerHTML = playlists.map(pl => {
+            const isPinned = pinnedIds.has(pl.id);
+            const isStartup = this.startupPlaylistId === pl.id;
+            // No se puede anclar más si se alcanzó el límite y esta no está anclada
+            const pinDisabled = !isPinned && limiteAlcanzado;
+            return `
+                <div class="pinned-row">
+                    <div class="pinned-row-info">
+                        <span class="pinned-row-name">${this.escapeHtml(pl.key)}</span>
+                        <span class="pinned-row-count">${pl.count} ${pl.count === 1 ? 'canción' : 'canciones'}</span>
+                    </div>
+                    <div class="pinned-row-actions">
+                        <button type="button"
+                                class="pinned-pin-btn ${isPinned ? 'active' : ''}"
+                                data-action="toggle-pin"
+                                data-id="${pl.id}"
+                                data-name="${this.escapeHtml(pl.key)}"
+                                ${pinDisabled ? 'disabled' : ''}
+                                title="${isPinned ? 'Quitar de la barra' : 'Anclar a la barra'}">
+                            ${isPinned ? '📌 Anclada' : '📌 Anclar'}
+                        </button>
+                        <button type="button"
+                                class="pinned-startup-toggle ${isStartup ? 'active' : ''}"
+                                data-action="toggle-startup"
+                                data-id="${pl.id}"
+                                ${isPinned ? '' : 'disabled'}
+                                title="Abrir esta playlist al entrar (en vez de Inicio)">
+                            🏠 ${isStartup ? 'Abre al inicio' : 'Abrir al inicio'}
+                        </button>
+                    </div>
+                </div>`;
+        }).join('');
+
+        const contador = document.querySelector('.pinned-modal-subtitle');
+        if (contador) {
+            contador.textContent =
+                `Ancladas ${this.pinnedPlaylists.length}/${App.MAX_PINNED}. ` +
+                'El interruptor 🏠 hace que esa playlist se abra al entrar (solo una a la vez).';
+        }
+    }
+
+    /**
+     * Ancla o desancla una playlist de la barra (persistiendo en el usuario).
+     * @param {string} playlistId
+     * @param {string} playlistName
+     */
+    async togglePin(playlistId, playlistName) {
+        if (!this.currentUser) return;
+        const idx = this.pinnedPlaylists.findIndex(p => p.id === playlistId);
+
+        if (idx !== -1) {
+            // Desanclar
+            this.pinnedPlaylists.splice(idx, 1);
+            // Si era la de arranque, desactivar el arranque
+            if (this.startupPlaylistId === playlistId) {
+                this.startupPlaylistId = null;
+                await firestoreService.saveStartupPlaylist(this.currentUser.uid, null);
+            }
+        } else {
+            // Anclar (respetando el máximo)
+            if (this.pinnedPlaylists.length >= App.MAX_PINNED) {
+                alert(`Solo puedes anclar un máximo de ${App.MAX_PINNED} playlists.`);
+                return;
+            }
+            this.pinnedPlaylists.push({ id: playlistId, name: playlistName });
+        }
+
+        try {
+            await firestoreService.savePinnedPlaylists(this.currentUser.uid, this.pinnedPlaylists);
+        } catch (error) {
+            console.error('Error guardando playlists ancladas:', error);
+            alert('No se pudieron guardar los cambios. Intenta de nuevo.');
+            await this.loadUserPinnedPrefs();
+            return;
+        }
+
+        this.renderPinnedPlaylists();
+        // Refrescar el modal con el estado nuevo
+        try {
+            const playlists = await firestoreService.getPlaylistsWithCounts();
+            this.renderPinnedModalList(playlists);
+        } catch (_) { /* el modal se refrescará al reabrir */ }
+    }
+
+    /**
+     * Activa/desactiva la playlist de arranque. Solo una puede estar activa.
+     * @param {string} playlistId
+     */
+    async toggleStartup(playlistId) {
+        if (!this.currentUser) return;
+        // Solo se permite si está anclada
+        if (!this.pinnedPlaylists.some(p => p.id === playlistId)) return;
+
+        this.startupPlaylistId = (this.startupPlaylistId === playlistId) ? null : playlistId;
+
+        try {
+            await firestoreService.saveStartupPlaylist(this.currentUser.uid, this.startupPlaylistId);
+        } catch (error) {
+            console.error('Error guardando playlist de arranque:', error);
+            alert('No se pudo guardar el cambio. Intenta de nuevo.');
+            await this.loadUserPinnedPrefs();
+            return;
+        }
+
+        this.renderPinnedPlaylists();
+        try {
+            const playlists = await firestoreService.getPlaylistsWithCounts();
+            this.renderPinnedModalList(playlists);
+        } catch (_) { /* se refrescará al reabrir */ }
+    }
+
+    /**
+     * Escapa texto para insertarlo de forma segura en HTML.
+     * @param {string} str
+     * @returns {string}
+     */
+    escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /**
@@ -1277,15 +1560,48 @@ class App {
             if (this.currentNavMenu === 'liked') {
                 this.handleFilterClick('liked');
             }
+
+            // Cargar playlists ancladas del usuario y, si procede, abrir la
+            // playlist de arranque en lugar de Inicio (solo una vez por carga).
+            this.loadUserPinnedPrefs().then(() => this.maybeOpenStartupPlaylist());
         } else {
             console.log('Usuario no autenticado');
             this.uiManager.showUserLoggedOut();
             userLikesService.setUserId(null);
 
+            // Limpiar las playlists ancladas (son por cuenta)
+            this.pinnedPlaylists = [];
+            this.startupPlaylistId = null;
+            this.renderPinnedPlaylists();
+
             // Si estamos en "Favoritas" y el usuario cierra sesion, volver a inicio
             if (this.currentNavMenu === 'liked') {
-                this.handleNavigation('inicio');
+                const navInicio = document.getElementById('navInicio');
+                if (navInicio) navInicio.click();
             }
+        }
+    }
+
+    /**
+     * Si el usuario tiene configurada una playlist de arranque (y sigue anclada),
+     * la abre en vez de Inicio. Solo actúa una vez por carga de página y solo si
+     * el usuario aún no ha navegado (seguimos en la vista de Inicio inicial).
+     */
+    async maybeOpenStartupPlaylist() {
+        if (this.startupRedirectDone) return;
+        this.startupRedirectDone = true;
+
+        if (!this.startupPlaylistId) return;
+        // Solo si seguimos en Inicio (el usuario no tocó nada mientras cargaba)
+        if (this.currentViewId !== 'inicio') return;
+
+        const pl = this.pinnedPlaylists.find(p => p.id === this.startupPlaylistId);
+        if (!pl) return;
+
+        try {
+            await this.openPinnedPlaylist(pl.id, pl.name);
+        } catch (error) {
+            console.error('Error abriendo la playlist de arranque:', error);
         }
     }
 

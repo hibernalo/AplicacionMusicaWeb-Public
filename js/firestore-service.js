@@ -1748,6 +1748,61 @@ class FirestoreService {
     }
 
     /**
+     * Obtiene las preferencias de barra del usuario:
+     *  - pinnedPlaylists: array de { id, name } (máx 5)
+     *  - startupPlaylistId: id de la playlist que se abre al entrar (o null)
+     * @param {string} userId
+     * @returns {Promise<{pinnedPlaylists: Array, startupPlaylistId: string|null}>}
+     */
+    async getUserPrefs(userId) {
+        const vacio = { pinnedPlaylists: [], startupPlaylistId: null };
+        if (!userId) return vacio;
+        try {
+            const doc = await db.collection('users').doc(userId).get();
+            if (!doc.exists) return vacio;
+            const data = doc.data();
+            return {
+                pinnedPlaylists: Array.isArray(data.pinnedPlaylists) ? data.pinnedPlaylists : [],
+                startupPlaylistId: data.startupPlaylistId || null
+            };
+        } catch (error) {
+            console.error('Error obteniendo preferencias de usuario:', error);
+            return vacio;
+        }
+    }
+
+    /**
+     * Guarda la lista de playlists ancladas del usuario (máx 5).
+     * @param {string} userId
+     * @param {Array<{id: string, name: string}>} pinnedPlaylists
+     * @returns {Promise<void>}
+     */
+    async savePinnedPlaylists(userId, pinnedPlaylists) {
+        if (!userId) throw new Error('Usuario no autenticado');
+        const limpio = (pinnedPlaylists || [])
+            .slice(0, 5)
+            .map(p => ({ id: p.id, name: p.name }));
+        await db.collection('users').doc(userId).set(
+            { pinnedPlaylists: limpio },
+            { merge: true }
+        );
+    }
+
+    /**
+     * Guarda la playlist de arranque (la que se abre al entrar en vez de Inicio).
+     * @param {string} userId
+     * @param {string|null} playlistId - null para desactivar
+     * @returns {Promise<void>}
+     */
+    async saveStartupPlaylist(userId, playlistId) {
+        if (!userId) throw new Error('Usuario no autenticado');
+        await db.collection('users').doc(userId).set(
+            { startupPlaylistId: playlistId || null },
+            { merge: true }
+        );
+    }
+
+    /**
      * Agrega una canción a una playlist
      * @param {string} playlistId - ID de la playlist
      * @param {string} songTitle - Título de la canción (nombre completo)

@@ -431,7 +431,12 @@ class AudioPlayer {
      */
     async selectGenreInCombobox(genreName) {
         if (!this.genreSelect || !genreName || genreName.trim() === '') {
-            // Si no hay género, limpiar sources
+            // Si no hay género: resetear el combobox de género y limpiar los sources.
+            // (Asignar .value por código NO dispara el evento 'change', así que no
+            //  se modifica la canción.)
+            if (this.genreSelect) {
+                this.genreSelect.value = '';
+            }
             if (this.sourceSelect) {
                 this.sourceSelect.disabled = true;
                 this.sourceSelect.innerHTML = '<option value="">Source</option><option value="__add__">➕ Agregar source</option>';
@@ -752,19 +757,13 @@ class AudioPlayer {
             }
         }
 
-        // Seleccionar género y source en los combobox si la canción los tiene
-        // Primero seleccionar el género (esto cargará los sources)
-        if (song.genre) {
-            await this.selectGenreInCombobox(song.genre);
-            // Luego seleccionar el source después de que se hayan cargado los sources
-            if (song.source) {
-                await this.selectSourceInCombobox(song.source);
-            }
-        } else if (song.source) {
-            // Si hay source pero no género, intentar seleccionar solo el source
-            // Esto probablemente no funcionará bien sin género, pero lo intentamos
-            await this.selectSourceInCombobox(song.source);
-        }
+        // Seleccionar género y source en los combobox según la canción.
+        // IMPORTANTE: llamar SIEMPRE (incluso con valor vacío) para que los
+        // combobox se reseteen cuando la nueva canción no tiene género/source.
+        // Si no, arrastran el valor de la canción anterior (bug de estado obsoleto).
+        // Primero el género (esto carga los sources), luego el source.
+        await this.selectGenreInCombobox(song.genre || '');
+        await this.selectSourceInCombobox(song.source || '');
 
         // Actualizar valores
         const genre = song.genre || '';

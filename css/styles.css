@@ -2588,3 +2588,149 @@ body {
     background: rgba(255, 255, 255, 0.08);
     user-select: none;
 }
+
+/* ============================================================
+   Playlists ancladas a la barra + modal de gestión
+   ============================================================ */
+
+/* Enlace de playlist anclada en la barra lateral */
+.nav-item-pinned .nav-link {
+    /* Hereda el estilo de .nav-link; solo un matiz visual sutil */
+}
+.nav-item-pinned .nav-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Botón "Añadir playlist" un poco más tenue */
+#navAddPinned .nav-icon {
+    opacity: 0.9;
+}
+
+/* Modal de gestión de ancladas */
+.pinned-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10002;
+}
+.pinned-modal-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+}
+.pinned-modal-content {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 28px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.pinned-modal-close {
+    position: absolute;
+    top: 14px; right: 16px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
+}
+.pinned-modal-close:hover { color: var(--text-primary); }
+.pinned-modal-title {
+    color: var(--text-primary);
+    margin: 0 0 6px;
+    font-size: 20px;
+}
+.pinned-modal-subtitle {
+    color: var(--text-secondary);
+    margin: 0 0 18px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.pinned-modal-empty {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 20px 0;
+}
+
+/* Filas del modal */
+.pinned-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+.pinned-row:last-child { border-bottom: none; }
+.pinned-row-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.pinned-row-name {
+    color: var(--text-primary);
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pinned-row-count {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+.pinned-row-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.pinned-pin-btn,
+.pinned-startup-toggle {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+.pinned-pin-btn:hover:not(:disabled),
+.pinned-startup-toggle:hover:not(:disabled) {
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+.pinned-pin-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #ffffff;
+}
+.pinned-startup-toggle.active {
+    background: rgba(29, 181, 255, 0.15);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+.pinned-pin-btn:disabled,
+.pinned-startup-toggle:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+    .pinned-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .pinned-row-actions { justify-content: flex-end; }
+}

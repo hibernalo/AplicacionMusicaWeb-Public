@@ -45,6 +45,16 @@ const PLAYLISTS = getArg('playlists', '')
     .map(p => p.trim())
     .filter(Boolean);
 
+// Filtros opcionales por nombre de archivo (subcadena, insensible a mayúsculas):
+//   --only "Safe And Sound"              -> solo procesa archivos que contengan ese texto
+//   --exclude "Safe And Sound,Drown"     -> procesa todos MENOS los que contengan alguno
+//                                           (varios valores separados por coma)
+const ONLY = getArg('only', '');
+const EXCLUDE = getArg('exclude', '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+
 // Inicializar Firebase Admin
 const serviceAccount = require(SERVICE_ACCOUNT_PATH);
 admin.initializeApp({
@@ -242,10 +252,25 @@ async function main() {
 
     // Leer archivos de audio
     const allFiles = fs.readdirSync(SONGS_FOLDER);
-    const audioFiles = allFiles.filter(f => {
+    let audioFiles = allFiles.filter(f => {
         const ext = path.extname(f).toLowerCase();
         return AUDIO_EXTENSIONS.includes(ext);
     });
+
+    // Aplicar filtros --only / --exclude (subcadena en el nombre de archivo)
+    if (ONLY) {
+        const needle = ONLY.toLowerCase();
+        audioFiles = audioFiles.filter(f => f.toLowerCase().includes(needle));
+        console.log(`Filtro --only "${ONLY}": ${audioFiles.length} archivo(s) coinciden.`);
+    }
+    if (EXCLUDE.length > 0) {
+        const antes = audioFiles.length;
+        audioFiles = audioFiles.filter(f => {
+            const lower = f.toLowerCase();
+            return !EXCLUDE.some(needle => lower.includes(needle));
+        });
+        console.log(`Filtro --exclude [${EXCLUDE.join(', ')}]: excluidos ${antes - audioFiles.length} archivo(s).`);
+    }
 
     if (audioFiles.length === 0) {
         console.log('No se encontraron archivos de audio en la carpeta.');
