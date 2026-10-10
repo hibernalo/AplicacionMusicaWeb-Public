@@ -2,6 +2,33 @@ import storageService from './storage-service.js';
 import firestoreService from './firestore-service.js';
 import userLikesService from './user-likes-service.js';
 import queueManager from './queue-manager.js';
+import SongPrefetcher from './song-prefetcher.js';
+import debugLog from './debug-log.js';
+import listeningStats from './listening-stats.js';
+
+// Precarga de la siguiente canción: empezar cuando la actual lleve al menos
+// estos segundos sonando (para no competir con su propia descarga al arrancar)...
+const PREFETCH_AFTER_SECONDS = 5;
+// ...y sólo si la "siguiente" lleva estable este tiempo (evita descargar en
+// cadena mientras el usuario navega por listas o reordena la cola).
+const PREFETCH_STABLE_MS = 1500;
+// Máximo de canciones que se recuerdan para el botón "anterior"
+const MAX_PLAY_HISTORY = 100;
+
+/**
+ * Promesa con límite de tiempo. En segundo plano una petición puede quedarse
+ * colgada indefinidamente (red suspendida por el sistema); esto la convierte
+ * en un error del que se puede reaccionar.
+ */
+function withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timeout de ${label} tras ${ms} ms`)), ms);
+        promise.then(
+            (value) => { clearTimeout(timer); resolve(value); },
+            (error) => { clearTimeout(timer); reject(error); }
+        );
+    });
+}
 
 /**
  * Controlador del reproductor de audio
@@ -13,6 +40,10 @@ class AudioPlayer {
         this.songList = [];
         this.originalSongList = []; // Para shuffle
         this.shuffleQueue = []; // Cola aleatoria sin repetición para shuffle
+        // Canciones que han sonado antes de la actual (la última, la más
+        // reciente). En aleatorio, "anterior" vuelve por aquí y no por la lista.
+        this.playHistory = [];
+        this.navigatingBack = false;
         this.currentIndex = -1;
         this.isPlaying = false;
         // Cargar volumen desde localStorage o usar valor por defecto
@@ -23,6 +54,23 @@ class AudioPlayer {
         // Saltos consecutivos por canciones rotas (sin archivo en Storage).
         // Sirve para auto-saltar a la siguiente sin entrar en bucle infinito.
         this.consecutiveLoadFailures = 0;
+
+        // Precarga EN MEMORIA de la siguiente canción (ver song-prefetcher.js).
+        // Con la pantalla apagada, el móvil corta la red y el JS en cuanto deja
+        // de sonar audio, así que la transición no puede depender de la red:
+        // los bytes tienen que estar ya descargados y play() debe llamarse de
+        // forma síncrona dentro del evento 'ended'.
+        this.prefetcher = new SongPrefetcher({
+            resolveAudioUrl: (audioPath) => storageService.getAudioUrl(audioPath),
+            resolveCoverUrl: (coverPath) => storageService.getCoverUrl(coverPath),
+            logger: (mensaje) => debugLog.log('precarga', mensaje)
+        });
+        // Canción cuya reproducción automática falló en segundo plano (sin
+        // red): se reintenta sola al volver la red o al desbloquear el móvil.
+        this.pendingResume = null;
+        this.currentBlobUrl = null;    // blob: URL de la canción que suena (si vino precargada)
+        this.prefetchCandidate = null; // { audioPath, since } para aplicar PREFETCH_STABLE_MS
+        this.pendingComboSync = false; // combos género/source pendientes de sincronizar al volver a ser visible
 
         this.initializeElements();
         this.attachEventListeners();
@@ -50,10 +98,10 @@ class AudioPlayer {
             }
         };
 
-        setHandler('play', () => this.play());
-        setHandler('pause', () => this.pause());
-        setHandler('previoustrack', () => this.playPrevious());
-        setHandler('nexttrack', () => this.playNext());
+        setHandler('play', () => { debugLog.log('mediasession', 'play'); this.play(); });
+        setHandler('pause', () => { debugLog.log('mediasession', 'pause'); this.pause(); });
+        setHandler('previoustrack', () => { debugLog.log('mediasession', 'anterior'); this.playPrevious(); });
+        setHandler('nexttrack', () => { debugLog.log('mediasession', 'siguiente'); this.playNext(); });
         setHandler('seekto', (details) => {
             if (details.fastSeek && 'fastSeek' in this.audioElement) {
                 this.audioElement.fastSeek(details.seekTime);
@@ -104,6 +152,32 @@ class AudioPlayer {
     updateMediaSessionPlaybackState(state) {
         if ('mediaSession' in navigator) {
             navigator.mediaSession.playbackState = state;
+        }
+    }
+
+    /**
+     * Informa al sistema de la duración y posición actuales. Ayuda a que el SO
+     * mantenga activa la sesión multimedia (clave para que no se corte con la
+     * pantalla apagada) y muestre bien la barra de progreso en la pantalla de
+     * bloqueo.
+     */
+    updateMediaSessionPositionState() {
+        if (!('mediaSession' in navigator) ||
+            typeof navigator.mediaSession.setPositionState !== 'function') {
+            return;
+        }
+        const duration = this.audioElement.duration;
+        if (!duration || isNaN(duration) || !isFinite(duration)) {
+            return;
+        }
+        try {
+            navigator.mediaSession.setPositionState({
+                duration,
+                playbackRate: this.audioElement.playbackRate || 1,
+                position: Math.min(this.audioElement.currentTime || 0, duration)
+            });
+        } catch (error) {
+            // Algunos navegadores pueden rechazar valores en el borde; ignorar
         }
     }
 
@@ -159,7 +233,13 @@ class AudioPlayer {
 
         // Progreso
         this.progressBar.addEventListener('input', (e) => this.seek(e.target.value));
-        this.audioElement.addEventListener('timeupdate', () => this.updateProgress());
+        this.audioElement.addEventListener('timeupdate', () => {
+            // Estadísticas de escucha: sumar el tramo que acaba de sonar.
+            // Síncrono y sin red (ver listening-stats-service.js).
+            listeningStats.onTimeUpdate(this.audioElement.currentTime);
+            this.updateProgress();
+            this.updatePrefetch();
+        });
         this.audioElement.addEventListener('loadedmetadata', () => this.updateTotalTime());
         this.audioElement.addEventListener('ended', () => this.onSongEnded());
 
@@ -231,6 +311,59 @@ class AudioPlayer {
         this.audioElement.addEventListener('canplay', () => {
             this.updateTotalTime();
         });
+
+        // Si cambia la cola manual (añadir/quitar), recalcular la precarga:
+        // la "siguiente" puede haber cambiado.
+        document.addEventListener('queueChanged', () => {
+            this.updatePrefetch();
+        });
+
+        // Al volver a ser visible la página, sincronizar los combos
+        // género/source si quedó pendiente (en segundo plano se omite: no se
+        // ven, y sus lecturas de Firestore fallan sin red con la pantalla
+        // apagada, cortando la cadena de reproducción).
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && this.pendingComboSync && this.currentSong) {
+                this.pendingComboSync = false;
+                this.syncCombosWithSong(this.currentSong);
+            }
+        });
+
+        // Diagnóstico: estados anómalos del elemento de audio
+        this.audioElement.addEventListener('error', () => {
+            const err = this.audioElement.error;
+            debugLog.log('audio', `error del elemento (code=${err ? err.code : '?'}) src=${(this.audioElement.currentSrc || '').slice(0, 40)}`);
+        });
+        this.audioElement.addEventListener('stalled', () => {
+            debugLog.log('audio', 'stalled (la red no entrega datos)');
+        });
+
+        // Si una transición automática falló sin red, reintentarla cuando
+        // vuelva la red o cuando la página sea visible (desbloqueo del móvil).
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) this.tryResumePending('visible');
+        });
+        window.addEventListener('online', () => this.tryResumePending('online'));
+    }
+
+    /**
+     * Reintenta la reproducción que quedó pendiente tras un fallo automático
+     * en segundo plano (p. ej. sin red al terminar una canción sin precarga).
+     * @param {string} motivo - Qué provocó el reintento (para el registro)
+     */
+    tryResumePending(motivo) {
+        if (!this.pendingResume) return;
+        if (this.isPlaying && !this.audioElement.paused) {
+            this.pendingResume = null;
+            return;
+        }
+        const song = this.pendingResume;
+        this.pendingResume = null;
+        debugLog.log('player', `reanudando "${song.title}" (${motivo})`);
+        // Anular la canción actual para que playSong no lo trate como un
+        // toggle de play/pausa de la misma canción: es una reanudación.
+        this.currentSong = null;
+        this.playSong(song, -1);
     }
 
     /**
@@ -382,11 +515,12 @@ class AudioPlayer {
                 }
             }
         } catch (error) {
+            // Sin alert: esto corre en cada cambio de canción y, con la página
+            // en segundo plano sin red, un alert bloquea el JS y corta la
+            // cadena de reproducción. El combo queda utilizable igualmente.
             console.error('Error cargando sources:', error);
-            console.error('Error details:', error.message, error.stack);
             if (this.sourceSelect) {
                 this.sourceSelect.disabled = false;
-                alert(`Error al cargar los sources: ${error.message || 'Error desconocido'}`);
             }
         }
     }
@@ -568,6 +702,9 @@ class AudioPlayer {
             this.songList = [...songs];
             this.shuffleQueue = [];
         }
+
+        // La "siguiente" puede haber cambiado: recalcular la precarga
+        this.updatePrefetch();
     }
 
     /**
@@ -592,7 +729,18 @@ class AudioPlayer {
                 }
             }
 
+            // Historial: guardar la que sonaba (salvo si estamos volviendo atrás)
+            if (this.currentSong && !this.navigatingBack) {
+                this.playHistory.push(this.currentSong);
+                if (this.playHistory.length > MAX_PLAY_HISTORY) {
+                    this.playHistory.shift();
+                }
+            }
+            this.navigatingBack = false;
+
             this.currentSong = song;
+            // Estadísticas: lo que suene a partir de ahora se atribuye a esta canción
+            listeningStats.beginSong(song);
             if (index >= 0) {
                 this.currentIndex = index;
             } else {
@@ -600,24 +748,51 @@ class AudioPlayer {
                 this.currentIndex = this.songList.findIndex(s => s.id === song.id);
             }
 
-            // Obtener URL del audio
-            const audioUrl = await storageService.getAudioUrl(song.audioPath);
-            this.audioElement.src = audioUrl;
-
-            // Actualizar UI
-            this.updateSongInfo(song);
-
-            // Cargar y reproducir
-            await this.audioElement.load();
-            await this.play();
+            const prefetched = this.prefetcher.take(song);
+            debugLog.log('player', `playSong "${song.title}" ${prefetched ? 'desde memoria' : 'en streaming'}${document.hidden ? ' (oculta)' : ''}`);
+            if (prefetched) {
+                // VÍA RÁPIDA: la canción ya está entera en memoria. Todo lo que
+                // hay hasta play() es síncrono (ni red ni awaits): es lo que
+                // permite encadenar canciones con la pantalla apagada.
+                this.setSource(prefetched.blobUrl, true);
+                this.updateSongInfo(song, prefetched.coverUrl);
+                this.audioElement.load();
+                await this.play();
+            } else {
+                // VÍA NORMAL: resolver la URL de descarga y reproducir en
+                // streaming. En segundo plano, con límite de tiempo: sin red
+                // la petición puede colgarse y dejar el reproductor mudo.
+                const urlPromise = storageService.getAudioUrl(song.audioPath);
+                const audioUrl = document.hidden
+                    ? await withTimeout(urlPromise, 10000, 'getAudioUrl')
+                    : await urlPromise;
+                this.setSource(audioUrl, false);
+                this.updateSongInfo(song);
+                this.audioElement.load();
+                await this.play();
+            }
 
             // Carga correcta: reiniciar el contador de fallos
             this.consecutiveLoadFailures = 0;
+            this.pendingResume = null;
+
+            // Empezar a precargar la siguiente (best-effort, sin await)
+            this.updatePrefetch();
 
             // Disparar evento personalizado
             this.dispatchEvent('songChanged', { song, index: this.currentIndex });
         } catch (error) {
             console.error('Error reproduciendo canción:', error);
+            debugLog.log('player', `ERROR playSong "${song.title}": ${error && (error.message || error.code || error)}`);
+
+            // En segundo plano el fallo casi seguro es de red (no una canción
+            // rota): no encadenar más peticiones; dejar la reanudación
+            // pendiente para cuando vuelva la red o se desbloquee el móvil.
+            if (document.hidden) {
+                this.pendingResume = song;
+                debugLog.log('player', `reanudación pendiente: "${song.title}"`);
+                return;
+            }
 
             // La canción está rota (su archivo no existe en Storage). En vez de
             // bloquear con un error, saltar automáticamente a la siguiente.
@@ -631,7 +806,12 @@ class AudioPlayer {
                 this.playNext();
             } else {
                 this.consecutiveLoadFailures = 0;
-                alert('No se pudo cargar la canción (archivo no disponible).');
+                if (document.hidden) {
+                    // En segundo plano un alert bloquearía el JS (y la música)
+                    console.warn('No se pudo cargar la canción (archivo no disponible).');
+                } else {
+                    alert('No se pudo cargar la canción (archivo no disponible).');
+                }
             }
         }
     }
@@ -640,7 +820,7 @@ class AudioPlayer {
      * Actualiza la información de la canción en el UI
      * @param {Object} song - Objeto de canción
      */
-    async updateSongInfo(song) {
+    async updateSongInfo(song, coverUrl = null) {
         this.currentTitle.textContent = song.title || 'Sin título';
         this.currentArtist.textContent = song.artist || 'Artista desconocido';
 
@@ -655,10 +835,14 @@ class AudioPlayer {
         // Actualizar imagen especial según la canción
         this.updateSpecialSongImage(song);
 
-        // Cargar cover
+        // Cargar cover. Si la URL ya viene resuelta (canción precargada) no hay
+        // ningún await: los metadatos de la pantalla de bloqueo se actualizan
+        // en el mismo instante en que arranca la canción.
         if (song.coverPath) {
             try {
-                const coverUrl = await storageService.getCoverUrl(song.coverPath);
+                if (!coverUrl) {
+                    coverUrl = await storageService.getCoverUrl(song.coverPath);
+                }
                 this.currentCover.src = coverUrl;
                 this.currentCover.style.display = 'block';
                 // Pasar la carátula al sistema operativo (pantalla de bloqueo iOS, etc.)
@@ -731,6 +915,19 @@ class AudioPlayer {
     }
 
     /**
+     * Sincroniza los combobox de género y source con la canción dada.
+     * IMPORTANTE: llamar SIEMPRE (incluso con valor vacío) para que los
+     * combobox se reseteen cuando la nueva canción no tiene género/source.
+     * Si no, arrastran el valor de la canción anterior (bug de estado obsoleto).
+     * Primero el género (esto carga los sources), luego el source.
+     * @param {Object} song - Objeto de canción
+     */
+    async syncCombosWithSong(song) {
+        await this.selectGenreInCombobox(song.genre || '');
+        await this.selectSourceInCombobox(song.source || '');
+    }
+
+    /**
      * Actualiza los botones de información con los datos de la canción
      * @param {Object} song - Objeto de canción
      */
@@ -757,13 +954,15 @@ class AudioPlayer {
             }
         }
 
-        // Seleccionar género y source en los combobox según la canción.
-        // IMPORTANTE: llamar SIEMPRE (incluso con valor vacío) para que los
-        // combobox se reseteen cuando la nueva canción no tiene género/source.
-        // Si no, arrastran el valor de la canción anterior (bug de estado obsoleto).
-        // Primero el género (esto carga los sources), luego el source.
-        await this.selectGenreInCombobox(song.genre || '');
-        await this.selectSourceInCombobox(song.source || '');
+        // Seleccionar género y source en los combobox según la canción. Con la
+        // página oculta (pantalla apagada) se pospone hasta el visibilitychange:
+        // los combos no se ven, y sus lecturas de Firestore fallan sin red,
+        // interrumpiendo la cadena de reproducción con errores.
+        if (document.hidden) {
+            this.pendingComboSync = true;
+        } else {
+            await this.syncCombosWithSong(song);
+        }
 
         // Actualizar valores
         const genre = song.genre || '';
@@ -933,6 +1132,21 @@ class AudioPlayer {
     }
 
     /**
+     * Cambia la fuente del elemento de audio y libera el blob anterior (si lo
+     * había). Es síncrono a propósito: se llama dentro del evento 'ended'.
+     * @param {string} url - URL de descarga o blob: URL
+     * @param {boolean} isBlob - true si `url` es una blob: URL de la precarga
+     */
+    setSource(url, isBlob) {
+        const previousBlobUrl = this.currentBlobUrl;
+        this.audioElement.src = url;
+        this.currentBlobUrl = isBlob ? url : null;
+        if (previousBlobUrl && previousBlobUrl !== url) {
+            this.prefetcher.release(previousBlobUrl);
+        }
+    }
+
+    /**
      * Reproduce el audio
      */
     async play() {
@@ -941,8 +1155,10 @@ class AudioPlayer {
             this.isPlaying = true;
             this.updatePlayPauseButton();
             this.updateMediaSessionPlaybackState('playing');
+            this.updateMediaSessionPositionState();
         } catch (error) {
             console.error('Error reproduciendo:', error);
+            debugLog.log('player', `ERROR play(): ${error && error.name} ${error && error.message}`);
             this.isPlaying = false;
             this.updatePlayPauseButton();
             this.updateMediaSessionPlaybackState('paused');
@@ -985,6 +1201,25 @@ class AudioPlayer {
      * Reproduce la canción anterior
      */
     playPrevious() {
+        // En aleatorio la lista está en su orden original: la anterior es la
+        // que sonó antes (historial), no la vecina en la lista.
+        if (this.isShuffle) {
+            const previousSong = this.playHistory.pop();
+            if (!previousSong) {
+                // Nada antes: volver a empezar la actual
+                this.audioElement.currentTime = 0;
+                return;
+            }
+            // Devolver la actual al frente de la cola: "siguiente" vuelve a ella
+            if (this.currentSong) {
+                this.shuffleQueue = this.shuffleQueue.filter(s => s.id !== this.currentSong.id);
+                this.shuffleQueue.unshift(this.currentSong);
+            }
+            this.navigatingBack = true;
+            this.playSong(previousSong, -1);
+            return;
+        }
+
         if (this.songList.length === 0) return;
 
         if (this.repeatMode === 'off') {
@@ -1058,12 +1293,116 @@ class AudioPlayer {
     }
 
     /**
+     * Determina, SIN consumir nada, qué canción sonará cuando termine la
+     * actual. Replica exactamente lo que hará onSongEnded():
+     *   repeat one → la misma; si no: 1) cola manual  2) aleatorio
+     *   3) lista normal (al acabar la lista se vuelve a la primera).
+     * @returns {Object|null} La siguiente canción o null si no hay
+     */
+    getNextSong() {
+        if (this.repeatMode === 'one') {
+            return this.currentSong;
+        }
+
+        // 1. La cola manual tiene prioridad
+        const fromQueue = queueManager.peek();
+        if (fromQueue) {
+            return fromQueue;
+        }
+
+        // 2. Modo aleatorio: la siguiente es la primera de la cola shuffle.
+        //    Si está vacía, generarla ya (playNext() lo haría igual) para
+        //    poder saber la siguiente por adelantado.
+        if (this.isShuffle) {
+            if (this.shuffleQueue.length === 0 && this.originalSongList.length > 1) {
+                this.initializeShuffleQueue();
+            }
+            return this.shuffleQueue.length > 0 ? this.shuffleQueue[0] : null;
+        }
+
+        // 3. Modo normal / repeat all
+        if (this.songList.length === 0) return null;
+        if (this.currentIndex < this.songList.length - 1) {
+            return this.songList[this.currentIndex + 1];
+        }
+        return this.songList[0];
+    }
+
+    /**
+     * ¿Es buen momento para empezar a descargar la siguiente canción?
+     * Si la actual suena desde memoria, sí (no compite con ninguna descarga).
+     * Si suena en streaming, esperar unos segundos a que tenga búfer propio.
+     * @returns {boolean}
+     */
+    isPrefetchWindowOpen() {
+        if (this.currentBlobUrl) return true;
+        const currentTime = this.audioElement.currentTime || 0;
+        const duration = this.audioElement.duration;
+        const threshold = (duration && isFinite(duration))
+            ? Math.min(PREFETCH_AFTER_SECONDS, duration / 2)
+            : PREFETCH_AFTER_SECONDS;
+        return currentTime >= threshold;
+    }
+
+    /**
+     * Mantiene precargada en memoria la canción que sonará después de la
+     * actual. Se llama con frecuencia (timeupdate, cambios de cola/modo); es
+     * barata y sólo lanza una descarga cuando la "siguiente" cambia de verdad
+     * y se mantiene estable durante PREFETCH_STABLE_MS.
+     */
+    updatePrefetch() {
+        const next = this.getNextSong();
+        if (!next || !next.audioPath) {
+            this.prefetchCandidate = null;
+            this.prefetcher.cancel();
+            return;
+        }
+
+        // Ya está lista o descargándose
+        if (this.prefetcher.has(next.audioPath)) {
+            this.prefetchCandidate = null;
+            return;
+        }
+
+        // La siguiente es la propia canción actual (repeat one o lista de una
+        // sola canción). Si ya suena desde memoria no hay nada que descargar;
+        // si suena en streaming sólo merece la pena en repeat one (para
+        // repetirla desde memoria sin depender de la red).
+        if (this.currentSong && next.audioPath === this.currentSong.audioPath) {
+            if (this.currentBlobUrl || this.repeatMode !== 'one') {
+                this.prefetchCandidate = null;
+                return;
+            }
+        }
+
+        if (!this.isPrefetchWindowOpen()) return;
+
+        const now = Date.now();
+        if (!this.prefetchCandidate || this.prefetchCandidate.audioPath !== next.audioPath) {
+            this.prefetchCandidate = { audioPath: next.audioPath, since: now };
+            return;
+        }
+        if (now - this.prefetchCandidate.since < PREFETCH_STABLE_MS) return;
+
+        this.prefetchCandidate = null;
+        this.prefetcher.prefetch(next);
+    }
+
+    /**
      * Se ejecuta cuando termina una canción
      */
     onSongEnded() {
+        debugLog.log('player', `ended "${this.currentSong ? this.currentSong.title : '?'}" (repeat=${this.repeatMode}, shuffle=${this.isShuffle}, oculta=${document.hidden})`);
         if (this.repeatMode === 'one') {
-            // Repetir la misma canción
-            this.audioElement.currentTime = 0;
+            // Repetir la misma canción. Si mientras sonaba se precargó en
+            // memoria, repetirla desde ahí (sin depender de la red).
+            const prefetched = this.currentSong ? this.prefetcher.take(this.currentSong) : null;
+            if (prefetched) {
+                this.setSource(prefetched.blobUrl, true);
+                this.audioElement.load();
+            } else {
+                this.audioElement.currentTime = 0;
+            }
             this.play();
         } else if (this.repeatMode === 'all') {
             // Repetir toda la lista
@@ -1095,6 +1434,7 @@ class AudioPlayer {
             const progress = (this.audioElement.currentTime / this.audioElement.duration) * 100;
             this.progressBar.value = progress;
             this.currentTimeDisplay.textContent = this.formatTime(this.audioElement.currentTime);
+            this.updateMediaSessionPositionState();
         }
     }
 
@@ -1104,6 +1444,7 @@ class AudioPlayer {
     updateTotalTime() {
         if (this.audioElement.duration) {
             this.totalTimeDisplay.textContent = this.formatTime(this.audioElement.duration);
+            this.updateMediaSessionPositionState();
         }
     }
 
@@ -1244,6 +1585,9 @@ class AudioPlayer {
                 this.songList = [...this.originalSongList];
             }
         }
+
+        // Al cambiar de modo, la "siguiente" cambia: recalcular la precarga
+        this.updatePrefetch();
     }
 
     /**
@@ -1308,6 +1652,9 @@ class AudioPlayer {
             if (repeatOneIcon) repeatOneIcon.style.display = 'none';
             this.repeatBtn.title = 'Repetir';
         }
+
+        // Al cambiar de modo, la "siguiente" cambia: recalcular la precarga
+        this.updatePrefetch();
     }
 
     /**

@@ -13,6 +13,8 @@ class AuthService {
     init() {
         auth.onAuthStateChanged(async (user) => {
             this.currentUser = user;
+            // Los permisos son por cuenta: olvidar los de la sesión anterior
+            this._permissionsCache = null;
 
             if (user) {
                 // Crear o actualizar documento del usuario en Firestore
@@ -125,12 +127,39 @@ class AuthService {
      * @returns {Promise<boolean>}
      */
     async isAdmin() {
-        if (!this.currentUser) return false;
+        const permisos = await this.getPermissions();
+        return permisos.isAdmin;
+    }
 
-        const userDoc = await db.collection('users').doc(this.currentUser.uid).get();
-        if (!userDoc.exists) return false;
+    /**
+     * Permisos del usuario actual leídos de su documento en Firestore.
+     * Se cachean por uid (se invalidan al cambiar de sesión) para no leer el
+     * documento cada vez que se consulta.
+     *  - isAdmin:   puede todo (incluida la subida de canciones)
+     *  - canUpload: puede subir canciones desde la web (campo `canUpload: true`)
+     * @param {boolean} [force=false] - releer aunque esté cacheado
+     * @returns {Promise<{isAdmin: boolean, canUpload: boolean}>}
+     */
+    async getPermissions(force = false) {
+        const sinPermisos = { isAdmin: false, canUpload: false };
+        if (!this.currentUser) return sinPermisos;
 
-        return userDoc.data().isAdmin === true;
+        const uid = this.currentUser.uid;
+        if (!force && this._permissionsCache && this._permissionsCache.uid === uid) {
+            return this._permissionsCache.permisos;
+        }
+
+        try {
+            const userDoc = await db.collection('users').doc(uid).get();
+            const data = userDoc.exists ? userDoc.data() : {};
+            const isAdmin = data.isAdmin === true;
+            const permisos = { isAdmin, canUpload: isAdmin || data.canUpload === true };
+            this._permissionsCache = { uid, permisos };
+            return permisos;
+        } catch (error) {
+            console.error('Error leyendo los permisos del usuario:', error);
+            return sinPermisos;
+        }
     }
 
     /**

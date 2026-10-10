@@ -1749,7 +1749,7 @@ class FirestoreService {
 
     /**
      * Obtiene las preferencias de barra del usuario:
-     *  - pinnedPlaylists: array de { id, name } (máx 5)
+     *  - pinnedPlaylists: array de { id, name } (máx 10)
      *  - startupPlaylistId: id de la playlist que se abre al entrar (o null)
      * @param {string} userId
      * @returns {Promise<{pinnedPlaylists: Array, startupPlaylistId: string|null}>}
@@ -1772,7 +1772,7 @@ class FirestoreService {
     }
 
     /**
-     * Guarda la lista de playlists ancladas del usuario (máx 5).
+     * Guarda la lista de playlists ancladas del usuario (máx 10).
      * @param {string} userId
      * @param {Array<{id: string, name: string}>} pinnedPlaylists
      * @returns {Promise<void>}
@@ -1780,7 +1780,7 @@ class FirestoreService {
     async savePinnedPlaylists(userId, pinnedPlaylists) {
         if (!userId) throw new Error('Usuario no autenticado');
         const limpio = (pinnedPlaylists || [])
-            .slice(0, 5)
+            .slice(0, 10)
             .map(p => ({ id: p.id, name: p.name }));
         await db.collection('users').doc(userId).set(
             { pinnedPlaylists: limpio },
@@ -2020,6 +2020,162 @@ class FirestoreService {
             console.error(`Error obteniendo coverPath anterior para playlist ${playlistNameOrId}:`, error);
             return null;
         }
+    }
+
+    // ========================================
+    // SUBIDA DE CANCIONES DESDE LA WEB
+    // ========================================
+
+    /**
+     * Busca una canción por título exacto (sin distinguir mayúsculas), usando
+     * el campo auxiliar titleMinusculas. Sirve para no subir duplicados.
+     * @param {string} title
+     * @returns {Promise<Object|null>} La canción ({id, ...data}) o null
+     */
+    async findSongByTitle(title) {
+        const t = String(title || '').trim().toLowerCase();
+        if (!t) return null;
+        const snap = await db.collection('songs')
+            .where('titleMinusculas', '==', t)
+            .limit(1)
+            .get();
+        if (snap.empty) return null;
+        return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    }
+
+    /**
+     * Nombres de todos los artistas de la colección `artistas` (para autocompletar).
+     * @returns {Promise<string[]>} Ordenados alfabéticamente, sin repetidos
+     */
+    async getArtistNames() {
+        const snap = await db.collection('artistas').get();
+        const nombres = snap.docs
+            .map(d => (d.data().name || d.id || '').trim())
+            .filter(Boolean);
+        return Array.from(new Set(nombres))
+            .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    }
+
+    /**
+     * Todos los sources con el género al que pertenecen (sin conteos: es para
+     * rellenar selectores, no para la vista de tarjetas).
+     * @returns {Promise<Array<{key: string, genreId: string, coverPath: string|null}>>}
+     */
+    async getAllSources() {
+        const snap = await db.collection('sources').get();
+        return snap.docs
+            .map(d => {
+                const data = d.data();
+                return {
+                    key: (data.name || d.id || '').trim(),
+                    genreId: (data.genreId || '').trim(),
+                    coverPath: data.coverPath || null
+                };
+            })
+            .filter(s => s.key)
+            .sort((a, b) => a.key.toLowerCase().localeCompare(b.key.toLowerCase()));
+    }
+
+    /**
+     * Garantiza que exista el documento de un género. Si ya existe (por id o
+     * por campo name) no toca nada; si no, lo crea con el nombre como id, igual
+     * que addGenre(). Devuelve el nombre tal y como queda guardado.
+     * @param {string} name
+     * @returns {Promise<string>}
+     */
+    async ensureGenre(name) {
+        const genreName = String(name || '').trim();
+        if (!genreName) return '';
+
+        const porId = await db.collection('genres').doc(genreName).get();
+        if (porId.exists) return porId.data().name || genreName;
+
+        const porNombre = await db.collection('genres').where('name', '==', genreName).limit(1).get();
+        if (!porNombre.empty) return porNombre.docs[0].data().name || genreName;
+
+        await db.collection('genres').doc(genreName).set({ name: genreName });
+        console.log(`Género creado al subir canciones: ${genreName}`);
+        return genreName;
+    }
+
+    /**
+     * Garantiza que exista el documento de un source dentro de un género. Si ya
+     * existe (por id o por name) no toca nada; si no, lo crea con el nombre
+     * como id y genreId = nombre del género, igual que addSource().
+     * @param {string} name - Nombre del source
+     * @param {string} genreName - Nombre del género (es también el genreId de sources)
+     * @returns {Promise<string>} Nombre del source tal y como queda guardado
+     */
+    async ensureSource(name, genreName) {
+        const sourceName = String(name || '').trim();
+        const genre = String(genreName || '').trim();
+        if (!sourceName) return '';
+        if (!genre) throw new Error(`El source "${sourceName}" necesita un género`);
+
+        const porId = await db.collection('sources').doc(sourceName).get();
+        if (porId.exists) return porId.data().name || sourceName;
+
+        const porNombre = await db.collection('sources').where('name', '==', sourceName).limit(1).get();
+        if (!porNombre.empty) return porNombre.docs[0].data().name || sourceName;
+
+        await db.collection('sources').doc(sourceName).set({
+            name: sourceName,
+            genreId: genre,
+            coverPath: ''
+        });
+        console.log(`Source creado al subir canciones: ${sourceName} (género ${genre})`);
+        return sourceName;
+    }
+
+    /**
+     * Garantiza que exista el documento de un artista en `artistas` (sin él, el
+     * artista no aparece en el menú "Artista"). No toca los que ya existen.
+     * @param {string} name
+     * @returns {Promise<void>}
+     */
+    async ensureArtist(name) {
+        const artistName = String(name || '').trim();
+        if (!artistName) return;
+
+        const porNombre = await db.collection('artistas').where('name', '==', artistName).limit(1).get();
+        if (!porNombre.empty) return;
+
+        const porId = await db.collection('artistas').doc(artistName).get();
+        if (porId.exists) return;
+
+        await db.collection('artistas').doc(artistName).set({ name: artistName, coverPath: '' });
+        console.log(`Artista creado al subir canciones: ${artistName}`);
+    }
+
+    /**
+     * Crea el documento de una canción nueva en `songs` (createdAt = ahora, en
+     * el servidor, para que salga en "Añadidos recientemente").
+     * @param {Object} data - Documento construido con buildSongDocument()
+     * @returns {Promise<string>} id del documento creado
+     */
+    async createSong(data) {
+        const docRef = await db.collection('songs').add({
+            ...data,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`Canción creada: "${data.title}" (${docRef.id})`);
+        return docRef.id;
+    }
+
+    /**
+     * Añade varios títulos a una playlist de una vez, sin duplicar los que ya
+     * estén (arrayUnion). No lee antes de escribir.
+     * @param {string} playlistId
+     * @param {string[]} titles
+     * @returns {Promise<void>}
+     */
+    async addSongsToPlaylist(playlistId, titles) {
+        const limpios = Array.from(new Set((titles || []).map(t => String(t || '').trim()).filter(Boolean)));
+        if (!playlistId || limpios.length === 0) return;
+        await db.collection('playlists').doc(playlistId).update({
+            songs: firebase.firestore.FieldValue.arrayUnion(...limpios)
+        });
+        console.log(`${limpios.length} canción(es) añadidas a la playlist ${playlistId}`);
     }
 }
 

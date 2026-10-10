@@ -31,9 +31,23 @@ Una aplicacion web moderna para gestionar y reproducir tu coleccion de musica pe
 - **Sources** - Organizacion por fuente/origen con submenus
 - **Playlists** - Listas de reproduccion personalizadas
 - **Anadidos Recientemente** - Ultimas canciones agregadas
+- **Estadísticas** - Tiempo escuchado por canción, artista, género y source (total, por mes y últimos 7 días)
 
 <!-- INSERTAR CAPTURA: Sidebar con los filtros desplegados -->
 ![Filtros](screenshots/filtros.png)
+
+---
+
+### Subida de Canciones desde la Web
+Solo para usuarios con permiso (`canUpload: true` o admin en su documento de Firestore):
+- Arrastra o elige **varios archivos de audio a la vez** (mp3, m4a, ogg, wav, flac)
+- Se leen los **metadatos** de cada archivo: título, artista, álbum, año, duración y portada embebida (si no hay tags, se deducen del nombre "Artista - Título")
+- Pulsa una canción para **corregir sus datos** (título, artista, álbum, año, género, source, playlists, portada)
+- Marca varias y **edítalas a la vez**: por ejemplo, poner género "anime" a 15 canciones de golpe
+- Crea géneros y sources nuevos desde el propio editor
+- Progreso por archivo, aviso de duplicados y resumen al terminar
+
+Para dar permiso a un usuario: `node scripts/set-upload-permission.js correo@ejemplo.com`
 
 ---
 
@@ -90,6 +104,11 @@ AplicacionMusicaWeb/
 │   ├── firestore-service.js# Servicio de base de datos
 │   ├── storage-service.js  # Servicio de almacenamiento
 │   ├── audio-player.js     # Controlador del reproductor
+│   ├── song-prefetcher.js  # Precarga en memoria de la siguiente canción
+│   ├── song-upload-service.js # Subida de canciones: lógica pura (borradores, edición en bloque)
+│   ├── audio-metadata.js   # Lectura de tags/portada de audios en el navegador
+│   ├── song-uploader.js    # Subida a Storage + creación en Firestore
+│   ├── upload-view.js      # Vista "Subir canciones"
 │   ├── song-list.js        # Gestor de lista de canciones
 │   ├── ui-manager.js       # Gestor de interfaz
 │   └── easter-egg.js       # Sorpresa oculta

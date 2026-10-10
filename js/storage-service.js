@@ -121,6 +121,73 @@ class StorageService {
     }
 
     /**
+     * Comprueba si ya existe un archivo en una ruta de Storage.
+     * @param {string} path - Ruta completa (p. ej. "Audios/cancion.mp3")
+     * @returns {Promise<boolean>}
+     */
+    async fileExists(path) {
+        try {
+            await storage.ref(path).getMetadata();
+            return true;
+        } catch (error) {
+            if (error && error.code === 'storage/object-not-found') return false;
+            // Cualquier otro error (red, permisos): asumir que no existe y dejar
+            // que la subida posterior falle con su propio mensaje si procede
+            console.warn(`No se pudo comprobar si existe ${path}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Sube un archivo (audio o imagen) a una ruta exacta de Storage, con
+     * progreso. Se usa en la subida de canciones desde la web.
+     * @param {Blob|File} blob - Contenido a subir
+     * @param {string} storagePath - Ruta destino completa (p. ej. "Audios/cancion.mp3")
+     * @param {Object} [options]
+     * @param {string} [options.contentType] - MIME a guardar (si no, el del blob)
+     * @param {Function} [options.onProgress] - (fraccion 0..1) → void
+     * @returns {Promise<string>} La misma ruta subida
+     */
+    uploadFile(blob, storagePath, { contentType = null, onProgress = null } = {}) {
+        return new Promise((resolve, reject) => {
+            const metadata = {
+                cacheControl: 'public, max-age=31536000'
+            };
+            if (contentType || (blob && blob.type)) {
+                metadata.contentType = contentType || blob.type;
+            }
+
+            const task = storage.ref(storagePath).put(blob, metadata);
+            task.on('state_changed',
+                (snapshot) => {
+                    if (onProgress && snapshot.totalBytes > 0) {
+                        onProgress(snapshot.bytesTransferred / snapshot.totalBytes);
+                    }
+                },
+                (error) => {
+                    console.error(`Error subiendo ${storagePath}:`, error);
+                    reject(error);
+                },
+                () => {
+                    // Invalidar cachés de URL por si la ruta existía
+                    this.audioUrlCache.delete(storagePath);
+                    this.coverUrlCache.delete(storagePath);
+                    resolve(storagePath);
+                }
+            );
+        });
+    }
+
+    /**
+     * Elimina un archivo cualquiera de Storage (ignora si no existe).
+     * @param {string} path
+     * @returns {Promise<void>}
+     */
+    async deleteFile(path) {
+        return this.deleteImage(path);
+    }
+
+    /**
      * Elimina una imagen de Firebase Storage
      * @param {string} path - Ruta completa del archivo en Storage
      * @returns {Promise<void>}

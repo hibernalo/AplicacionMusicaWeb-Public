@@ -954,6 +954,8 @@ class UIManager {
         const container = document.querySelector('.song-list-container');
         if (!container) return;
 
+        // Vistas de estadísticas y de subida: no hay lista de canciones que paginar
+        if (container.querySelector('.stats-view, .upload-view')) return;
         // Verificar si estamos mostrando items de filtro (filter-item-card) o canciones (song-card)
         const hasFilterItems = container.querySelector('.filter-item-card') !== null;
         const hasSongCards = container.querySelector('.song-card') !== null;

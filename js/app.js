@@ -6,6 +6,11 @@ import AudioPlayer from './audio-player.js';
 import SongListManager from './song-list.js';
 import UIManager from './ui-manager.js';
 import queueManager from './queue-manager.js';
+import listeningStats from './listening-stats.js';
+import StatsView from './stats-view.js';
+import UploadView from './upload-view.js';
+import { uploadDraft, addDraftsToPlaylists } from './song-uploader.js';
+import { readAudioMetadata, readDurationWithAudioElement } from './audio-metadata.js';
 
 /**
  * Aplicación principal - Coordina todos los componentes
@@ -15,10 +20,14 @@ class App {
         this.audioPlayer = null;
         this.songListManager = null;
         this.uiManager = null;
+        this.statsView = null;  // vista "Estadísticas" (tiempo escuchado por usuario)
+        this.uploadView = null; // vista "Subir canciones" (solo usuarios con permiso)
         this.isInitialized = false;
-        this.currentNavMenu = 'inicio'; // 'inicio', 'liked', 'genre', 'source', 'artist', 'album', 'year'
+        this.currentNavMenu = 'inicio'; // 'inicio', 'liked', 'genre', 'source', 'artist', 'album', 'year', 'stats', 'upload'
         this.sourceGenreId = null; // ID del género seleccionado cuando estamos en sources
         this.currentUser = null; // Usuario autenticado actual
+        // Permisos del usuario (users/{uid}.isAdmin / canUpload). Sin sesión: ninguno.
+        this.permissions = { isAdmin: false, canUpload: false };
 
         // Cola de reproducción desacoplada de la navegación:
         // - currentViewId: identifica la vista que se está mostrando ahora mismo.
@@ -30,7 +39,7 @@ class App {
         this.playbackViewId = null;
         this.currentDisplayList = [];
 
-        // Playlists ancladas a la barra lateral (por usuario, máx 5) y playlist
+        // Playlists ancladas a la barra lateral (por usuario, máx 10) y playlist
         // de arranque (la que se abre al entrar en vez de Inicio).
         this.pinnedPlaylists = [];       // [{ id, name }]
         this.startupPlaylistId = null;   // id o null
@@ -38,7 +47,7 @@ class App {
     }
 
     // Número máximo de playlists ancladas a la barra.
-    static get MAX_PINNED() { return 5; }
+    static get MAX_PINNED() { return 10; }
 
     /**
      * Sincroniza la cola del reproductor con la vista que se muestra actualmente.
@@ -112,6 +121,37 @@ class App {
             this.uiManager = new UIManager();
             this.songListManager = new SongListManager();
             this.audioPlayer = new AudioPlayer();
+
+            // Vista de estadísticas de escucha (se pinta dentro de #songList)
+            this.statsView = new StatsView({
+                container: document.getElementById('songList'),
+                service: listeningStats,
+                getSongById: (songId) => firestoreService.getSongById(songId),
+                // Miniaturas: portada de la canción, o la del artista/género/source
+                getCoverUrl: (coverPath) => storageService.getCoverUrl(coverPath),
+                getItemCoverPath: (filterType, name) => firestoreService.getPreviousCoverPath(filterType, name),
+                onPlaySong: (song) => this.audioPlayer.playSong(song, -1),
+                onOpenFilter: (filterType, filterValue) => this.openFilterFromStats(filterType, filterValue),
+                onRequestLogin: () => this.uiManager.showAuthModal(),
+                showLoading: () => this.uiManager.showLoading(),
+                hideLoading: () => this.uiManager.hideLoading()
+            });
+
+            // Vista "Subir canciones" (se pinta dentro de #songList). Firebase
+            // queda detrás de los callbacks: la vista solo pinta y orquesta.
+            this.uploadView = new UploadView({
+                container: document.getElementById('songList'),
+                readMetadata: (file) => readAudioMetadata(file),
+                readDuration: (file) => readDurationWithAudioElement(file),
+                getGenres: () => firestoreService.getGenresList(),
+                getSources: () => firestoreService.getAllSources(),
+                getArtistNames: () => firestoreService.getArtistNames(),
+                getPlaylists: () => this.getEditablePlaylists(),
+                uploadDraft: (draft, opts) => uploadDraft(draft, opts),
+                addDraftsToPlaylists: (drafts) => addDraftsToPlaylists(drafts),
+                // Al terminar, refrescar el contador global de canciones
+                onUploaded: () => this.uiManager.loadTotalSongsCount()
+            });
 
             // Mostrar indicador de carga
             this.uiManager.showLoading();
@@ -192,11 +232,16 @@ class App {
         document.addEventListener('loadMoreSongs', async () => {
             // IMPORTANTE: Solo cargar más canciones si estamos mostrando canciones, NO items de filtro
             // Si estamos en un menú de filtros mostrando items (artistas, sources, etc.), NO cargar canciones
-            const isFilterMenuShowingItems = ['genre', 'source', 'artist', 'album', 'year'].includes(this.currentNavMenu) && 
+            const isFilterMenuShowingItems = ['genre', 'source', 'artist', 'album', 'year'].includes(this.currentNavMenu) &&
                                              this.songListManager.currentFilterValue === null;
-            
+
             if (isFilterMenuShowingItems) {
                 console.log('loadMoreSongs: Estamos mostrando items de filtro, NO cargar canciones');
+                return;
+            }
+
+            // Estadísticas y Subir canciones no tienen lista de canciones que paginar
+            if (this.currentNavMenu === 'stats' || this.currentNavMenu === 'upload') {
                 return;
             }
 
@@ -240,9 +285,15 @@ class App {
         // Cuando se solicita una búsqueda
         document.addEventListener('searchRequested', async (e) => {
             const query = e.detail.query;
+
+            // En Estadísticas y Subir canciones el buscador no aplica (no hay lista que filtrar)
+            if (this.currentNavMenu === 'stats' || this.currentNavMenu === 'upload') return;
             
-            // Determinar el contexto de búsqueda según el menú activo
-            const isFilterMenu = ['genre', 'source', 'artist', 'album', 'year', 'playlist'].includes(this.currentNavMenu);
+            // Determinar el contexto de búsqueda según el menú activo. Si ya se
+            // ha entrado en un item (una playlist, un artista...), lo que se ve
+            // son sus canciones: buscar en ellas, no en la lista de items.
+            const isFilterMenu = ['genre', 'source', 'artist', 'album', 'year', 'playlist'].includes(this.currentNavMenu) &&
+                                 this.songListManager.currentFilterValue === null;
             
             this.uiManager.showLoading();
             
@@ -468,6 +519,24 @@ class App {
             });
         }
 
+        // Botón Estadísticas (tiempo escuchado por usuario)
+        const navStats = document.getElementById('navStats');
+        if (navStats) {
+            navStats.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.setActiveNavLink(navStats);
+                this.openStatsView();
+            });
+        }
+
+        // Botón Subir canciones (solo usuarios con permiso; el <li> está oculto si no)
+        const navUpload = document.getElementById('navUpload');
+        if (navUpload) {
+            navUpload.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.openUploadView();
+            });
+        }
         // Botón Source especial (con submenú)
         const navSource = document.getElementById('navSource');
         if (navSource) {
@@ -1555,6 +1624,7 @@ class App {
             console.log('Usuario autenticado:', user.email);
             this.uiManager.showUserLoggedIn(user.email);
             userLikesService.setUserId(user.uid);
+            listeningStats.setUserId(user.uid);
 
             // Si estamos en "Favoritas", recargar con likes del usuario
             if (this.currentNavMenu === 'liked') {
@@ -1564,10 +1634,33 @@ class App {
             // Cargar playlists ancladas del usuario y, si procede, abrir la
             // playlist de arranque en lugar de Inicio (solo una vez por carga).
             this.loadUserPinnedPrefs().then(() => this.maybeOpenStartupPlaylist());
+
+            // Si estamos en Estadísticas, repintar con la cuenta que acaba de entrar
+            if (this.currentNavMenu === 'stats' && this.statsView) {
+                this.statsView.show();
+            }
+
+            // Permisos (admin / subir canciones): mostrar u ocultar "Subir canciones"
+            this.refreshPermissions();
         } else {
             console.log('Usuario no autenticado');
             this.uiManager.showUserLoggedOut();
             userLikesService.setUserId(null);
+            listeningStats.setUserId(null);
+
+            // Sin sesión no hay permisos: ocultar "Subir canciones" y, si se
+            // estaba en esa vista, volver a Inicio
+            this.permissions = { isAdmin: false, canUpload: false };
+            this.updateUploadNav();
+            if (this.currentNavMenu === 'upload') {
+                const navInicio = document.getElementById('navInicio');
+                if (navInicio) navInicio.click();
+            }
+
+            // Si estamos en Estadísticas, mostrar el aviso de iniciar sesión
+            if (this.currentNavMenu === 'stats' && this.statsView) {
+                this.statsView.show();
+            }
 
             // Limpiar las playlists ancladas (son por cuenta)
             this.pinnedPlaylists = [];
@@ -1582,6 +1675,118 @@ class App {
         }
     }
 
+    /**
+     * Abre la vista "Estadísticas" (tiempo escuchado). Como el resto de menús,
+     * solo cambia lo que se muestra: la cola de reproducción no se toca.
+     */
+    openStatsView() {
+        this.currentNavMenu = 'stats';
+        this.sourceGenreId = null;
+
+        // Sin lista de canciones cargada: así ni el scroll infinito ni el
+        // cambio de modo de vista tienen nada que pintar encima de la vista.
+        this.songListManager.reset();
+        this.currentViewId = 'stats';
+        this.currentDisplayList = [];
+
+        this.uiManager.hideLoading();
+        this.uiManager.hideLoadMore();
+        this.uiManager.applyViewMode(false);
+        this.uiManager.hidePlayViewBar();
+        this.statsView.show();
+    }
+
+    // ========================================
+    // SUBIR CANCIONES (usuarios con permiso)
+    // ========================================
+
+    /**
+     * Relee los permisos del usuario actual (isAdmin / canUpload) y actualiza
+     * la barra lateral. Si el usuario estaba en "Subir canciones" y ya no
+     * puede, se le devuelve a Inicio.
+     */
+    async refreshPermissions() {
+        try {
+            this.permissions = await authService.getPermissions();
+        } catch (error) {
+            console.error('Error leyendo permisos del usuario:', error);
+            this.permissions = { isAdmin: false, canUpload: false };
+        }
+        this.updateUploadNav();
+        if (this.currentNavMenu === 'upload' && !this.permissions.canUpload) {
+            const navInicio = document.getElementById('navInicio');
+            if (navInicio) navInicio.click();
+        }
+    }
+
+    /**
+     * Muestra el enlace "Subir canciones" solo si el usuario tiene permiso.
+     */
+    updateUploadNav() {
+        const item = document.getElementById('navUploadItem');
+        if (item) item.style.display = this.permissions.canUpload ? '' : 'none';
+    }
+
+    /**
+     * Abre la vista "Subir canciones". Como el resto de menús, solo cambia lo
+     * que se muestra: la cola de reproducción no se toca.
+     */
+    openUploadView() {
+        if (!this.currentUser) {
+            this.uiManager.showAuthModal();
+            return;
+        }
+        if (!this.permissions.canUpload) {
+            alert('Tu cuenta no tiene permiso para subir canciones.');
+            return;
+        }
+
+        const navUpload = document.getElementById('navUpload');
+        if (navUpload) this.setActiveNavLink(navUpload);
+
+        this.currentNavMenu = 'upload';
+        this.sourceGenreId = null;
+
+        // Sin lista de canciones cargada: ni el scroll infinito ni el cambio de
+        // modo de vista tienen nada que pintar encima de la vista.
+        this.songListManager.reset();
+        this.currentViewId = 'upload';
+        this.currentDisplayList = [];
+
+        this.uiManager.hideLoading();
+        this.uiManager.hideLoadMore();
+        this.uiManager.applyViewMode(false);
+        this.uiManager.hidePlayViewBar();
+        this.uploadView.show();
+    }
+
+    /**
+     * Playlists a las que el usuario actual puede añadir canciones: las suyas,
+     * o todas si es admin (las reglas de Firestore solo dejan modificar una
+     * playlist a su dueño o a un admin).
+     * @returns {Promise<Array<{id: string, name: string, ownerId: string|null}>>}
+     */
+    async getEditablePlaylists() {
+        const todas = await firestoreService.getAllPlaylists();
+        if (this.permissions.isAdmin) return todas;
+        const uid = this.currentUser ? this.currentUser.uid : null;
+        return todas.filter(p => p.ownerId && p.ownerId === uid);
+    }
+
+    /**
+     * Desde un artista/género/source del ranking de estadísticas: abrir sus
+     * canciones exactamente igual que al pulsar su tarjeta en el menú.
+     * @param {string} filterType - 'artist' | 'genre' | 'source'
+     * @param {string} filterValue - Nombre del artista/género/source
+     */
+    async openFilterFromStats(filterType, filterValue) {
+        const navIds = { artist: 'navArtist', genre: 'navGenre', source: 'navSource' };
+        const link = document.getElementById(navIds[filterType]);
+        if (link) this.setActiveNavLink(link);
+        this.currentNavMenu = filterType;
+        this.sourceGenreId = null;
+        await this.handleFilterItemSelected(filterType, filterValue);
+    }
     /**
      * Si el usuario tiene configurada una playlist de arranque (y sigue anclada),
      * la abre en vez de Inicio. Solo actúa una vez por carga de página y solo si

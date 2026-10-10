@@ -39,6 +39,15 @@ class QueueManager {
     }
 
     /**
+     * Devuelve la primera canción de la cola SIN sacarla (peek).
+     * Se usa para precargar la siguiente sin consumir la cola.
+     * @returns {Object|null} Canción o null si la cola está vacía
+     */
+    peek() {
+        return this.queue.length > 0 ? this.queue[0] : null;
+    }
+
+    /**
      * Salta a una canción de la cola: la devuelve y descarta esa y todas las
      * anteriores a ella. El resto permanece.
      * @param {string} songId - ID de la canción objetivo

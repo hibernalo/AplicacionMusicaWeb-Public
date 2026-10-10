@@ -4,6 +4,8 @@
 //
 // Uso:
 //   node scripts/upload-songs.js
+//   node scripts/upload-songs.js --covers-only   (solo extrae caratulas, no sube)
+//   node scripts/upload-songs.js --dry-run       (muestra lo que subiria, no sube)
 //
 // Requisitos previos:
 //   1. Tener Node.js instalado
@@ -13,7 +15,8 @@
 //
 // Descripcion:
 //   Lee archivos de audio de una carpeta local, extrae sus metadatos (titulo,
-//   artista, album, año), busca covers coincidentes y sube todo a Firebase
+//   artista, album, año), vuelca a COVERS_FOLDER las caratulas que vengan
+//   embebidas en los audios, busca covers coincidentes y sube todo a Firebase
 //   Storage y Firestore.
 //
 // ============================================================================
@@ -38,6 +41,9 @@ function getArg(name, fallback) {
 }
 const GENRE = getArg('genre', '');
 const SOURCE = getArg('source', '');
+// Artista a forzar en todas las canciones (si no, se usa el de los metadatos):
+//   node scripts/upload-songs.js --artist Joost
+const ARTIST = getArg('artist', '');
 // Playlists (por nombre, separadas por coma) donde se agregaran las canciones subidas.
 //   node scripts/upload-songs.js --playlists JoelNuevas,JoelYT1
 const PLAYLISTS = getArg('playlists', '')
@@ -49,6 +55,18 @@ const PLAYLISTS = getArg('playlists', '')
 //   --only "Safe And Sound"              -> solo procesa archivos que contengan ese texto
 //   --exclude "Safe And Sound,Drown"     -> procesa todos MENOS los que contengan alguno
 //                                           (varios valores separados por coma)
+// Solo extraer las caratulas embebidas a COVERS_FOLDER, sin subir nada:
+//   node scripts/upload-songs.js --covers-only
+const COVERS_ONLY = process.argv.includes('--covers-only');
+
+// Mostrar lo que se subiria sin escribir nada en Firebase:
+//   node scripts/upload-songs.js --dry-run
+const DRY_RUN = process.argv.includes('--dry-run');
+
+// Por defecto, cuando el audio no trae tags, el artista y el titulo se deducen
+// del nombre del archivo ("Artista - Titulo"). Se desactiva con --no-split.
+const SPLIT_FILENAME = !process.argv.includes('--no-split');
+
 const ONLY = getArg('only', '');
 const EXCLUDE = getArg('exclude', '')
     .split(',')
@@ -70,22 +88,72 @@ const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.ogg', '.wav', '.flac'];
 // Extensiones de imagen validas
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 
+const metadataCache = new Map();
+
 /**
- * Lee los metadatos de un archivo de audio (titulo, artista, album, año)
+ * Lee los metadatos de un archivo de audio (titulo, artista, album, año) y la
+ * caratula embebida, si la trae. El resultado se cachea por ruta.
  */
 async function readMetadata(filePath) {
+    if (metadataCache.has(filePath)) return metadataCache.get(filePath);
+
+    let datos;
     try {
         const metadata = await parseFile(filePath);
-        return {
+        const imagenes = metadata.common.picture || [];
+        // Si el archivo trae varias imagenes, preferir la caratula frontal
+        const portada = imagenes.find(p => /front/i.test(p.type || '')) || imagenes[0] || null;
+        datos = {
             title: metadata.common.title || null,
             artist: metadata.common.artist || null,
             album: metadata.common.album || null,
-            year: metadata.common.year || null
+            year: metadata.common.year || null,
+            picture: portada
         };
     } catch (error) {
         console.error(`  Error leyendo metadatos de ${path.basename(filePath)}:`, error.message);
-        return { title: null, artist: null, album: null, year: null };
+        datos = { title: null, artist: null, album: null, year: null, picture: null };
     }
+
+    metadataCache.set(filePath, datos);
+    return datos;
+}
+
+/**
+ * Quita del titulo las marcas que añaden los descargadores, p. ej. " (SPOTISAVER)"
+ */
+function limpiarTitulo(title) {
+    return title.replace(/\s*\(SPOTISAVER\)/gi, '').trim();
+}
+
+// Sufijo que yt-dlp añade con el id del video: "...-PfKVlVbUQjc"
+const ID_YOUTUBE = /-[A-Za-z0-9_-]{11}$/;
+// Marcas de los titulos de YouTube que no forman parte del nombre de la cancion:
+// "(Official Video)", "[MV]", "(Offizielles Video)", "(Lyrics)"...
+const MARCAS_VIDEO = /\s*[([](?:official\s+|offizielles\s+|oficial\s+)?(?:music\s+)?(?:video(?:oficial)?|audio|lyrics?(?:\s+video)?|mv|visualizer)\s*[)\]]/gi;
+
+/**
+ * Quita del nombre de archivo el id de YouTube y las marcas de video.
+ */
+function limpiarNombreArchivo(audioBaseName) {
+    return audioBaseName
+        .replace(ID_YOUTUBE, '')
+        .replace(MARCAS_VIDEO, '')
+        .trim();
+}
+
+/**
+ * Deduce artista y titulo de un nombre "Artista - Titulo". Corta por el primer
+ * " - "; si no lo hay, devuelve el nombre entero como titulo y sin artista.
+ */
+function separarArtistaTitulo(audioBaseName) {
+    const limpio = limpiarNombreArchivo(audioBaseName);
+    const corte = limpio.indexOf(' - ');
+    if (corte === -1) return { artist: null, title: limpio };
+    return {
+        artist: limpio.slice(0, corte).trim() || null,
+        title: limpio.slice(corte + 3).trim() || limpio
+    };
 }
 
 /**
@@ -99,6 +167,71 @@ function findCover(audioBaseName) {
         }
     }
     return null;
+}
+
+/**
+ * Deduce la extension de una caratula embebida. Se mira primero el mime que
+ * declara el tag y, si no sirve, los primeros bytes (hay archivos que declaran
+ * el formato vacio o mal).
+ */
+function coverExtension(picture) {
+    const mime = String(picture.format || '').toLowerCase();
+    if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
+    if (mime.includes('png')) return '.png';
+    if (mime.includes('webp')) return '.webp';
+
+    const data = picture.data;
+    if (data.length > 3 && data[0] === 0xFF && data[1] === 0xD8 && data[2] === 0xFF) return '.jpg';
+    if (data.length > 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) return '.png';
+    if (data.length > 12 && data.slice(0, 4).toString('latin1') === 'RIFF' && data.slice(8, 12).toString('latin1') === 'WEBP') return '.webp';
+    return null;
+}
+
+/**
+ * Vuelca a COVERS_FOLDER la caratula embebida de un audio, con el mismo nombre
+ * base que el archivo de audio para que findCover() la encuentre despues.
+ * No sobrescribe una cover que ya exista en la carpeta.
+ * Devuelve 'guardada' | 'existente' | 'sin-caratula' | 'formato-desconocido'.
+ */
+async function extractEmbeddedCover(audioFile) {
+    const audioBaseName = path.parse(audioFile).name;
+    if (findCover(audioBaseName)) return 'existente';
+
+    const metadata = await readMetadata(path.join(SONGS_FOLDER, audioFile));
+    if (!metadata.picture || !metadata.picture.data || metadata.picture.data.length === 0) {
+        return 'sin-caratula';
+    }
+
+    const ext = coverExtension(metadata.picture);
+    if (!ext) return 'formato-desconocido';
+
+    const destino = path.join(COVERS_FOLDER, audioBaseName + ext);
+    fs.writeFileSync(destino, Buffer.from(metadata.picture.data));
+    console.log(`  Caratula extraida: ${path.basename(destino)} (${(metadata.picture.data.length / 1024).toFixed(0)} KB)`);
+    return 'guardada';
+}
+
+/**
+ * Fase previa a la subida: extrae a COVERS_FOLDER las caratulas embebidas de
+ * todos los audios que vayan a procesarse.
+ */
+async function extractCovers(audioFiles) {
+    console.log('\n=== Extrayendo caratulas embebidas ===');
+    const conteo = { guardada: 0, existente: 0, 'sin-caratula': 0, 'formato-desconocido': 0 };
+
+    for (const audioFile of audioFiles) {
+        try {
+            conteo[await extractEmbeddedCover(audioFile)]++;
+        } catch (error) {
+            console.error(`  ERROR extrayendo caratula de ${audioFile}:`, error.message);
+        }
+    }
+
+    console.log(`  Extraidas: ${conteo.guardada} | Ya existian: ${conteo.existente} | Sin caratula embebida: ${conteo['sin-caratula']} | Formato desconocido: ${conteo['formato-desconocido']}`);
+    if (conteo['sin-caratula'] > 0) {
+        console.log('  (las canciones sin cover se suben con coverPath vacio)');
+    }
+    return conteo;
 }
 
 /**
@@ -136,8 +269,11 @@ async function processSong(audioFile) {
 
     // 1. Leer metadatos del MP3
     const metadata = await readMetadata(audioFullPath);
-    const title = metadata.title || audioBaseName;
-    const artist = metadata.artist || '';
+    const desdeNombre = SPLIT_FILENAME
+        ? separarArtistaTitulo(audioBaseName)
+        : { artist: null, title: audioBaseName };
+    const title = limpiarTitulo(metadata.title || desdeNombre.title);
+    const artist = ARTIST || metadata.artist || desdeNombre.artist || '';
     const album = metadata.album || '';
     const year = metadata.year || null;
 
@@ -156,6 +292,11 @@ async function processSong(audioFile) {
 
     // 3. Subir audio a Storage
     const audioStoragePath = `Audios/${title}${audioExt}`;
+    if (DRY_RUN) {
+        console.log(`  [dry-run] Audios/${title}${audioExt}`);
+        console.log(`  [dry-run] cover: ${coverLocalPath ? `Covers/${title}${path.parse(coverLocalPath).ext}` : '(sin cover)'}`);
+        return title;
+    }
     await uploadToStorage(audioFullPath, audioStoragePath);
 
     // 4. Subir cover a Storage (si existe)
@@ -238,6 +379,9 @@ async function main() {
     console.log('=== Script de subida de canciones ===');
     console.log(`  Genero: ${GENRE || '(vacio)'}`);
     console.log(`  Fuente: ${SOURCE || '(vacio)'}`);
+    console.log(`  Artista forzado: ${ARTIST || '(metadatos)'}`);
+    console.log(`  Nombre de archivo como respaldo: ${SPLIT_FILENAME ? 'si (Artista - Titulo)' : 'no'}`);
+    if (DRY_RUN) console.log('  MODO DRY-RUN: no se escribe nada en Firebase');
     console.log(`  Playlists: ${PLAYLISTS.length ? PLAYLISTS.join(', ') : '(ninguna)'}\n`);
 
     // Validar que las carpetas existen
@@ -245,9 +389,10 @@ async function main() {
         console.error(`Error: La carpeta de canciones no existe: ${SONGS_FOLDER}`);
         process.exit(1);
     }
+    // COVERS_FOLDER es tambien la salida de las caratulas embebidas
     if (!fs.existsSync(COVERS_FOLDER)) {
-        console.error(`Error: La carpeta de covers no existe: ${COVERS_FOLDER}`);
-        process.exit(1);
+        fs.mkdirSync(COVERS_FOLDER, { recursive: true });
+        console.log(`Carpeta de covers creada: ${COVERS_FOLDER}`);
     }
 
     // Leer archivos de audio
@@ -280,6 +425,14 @@ async function main() {
     console.log(`Encontradas ${audioFiles.length} canciones para subir:\n`);
     audioFiles.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
 
+    // Volcar a COVERS_FOLDER las caratulas que traigan los propios audios
+    await extractCovers(audioFiles);
+
+    if (COVERS_ONLY) {
+        console.log('\n--covers-only: extraccion terminada, no se sube nada.');
+        process.exit(0);
+    }
+
     // Procesar cada cancion
     let exitosas = 0;
     let fallidas = 0;
@@ -302,7 +455,11 @@ async function main() {
     console.log(`  Total: ${audioFiles.length}`);
 
     // Agregar las canciones subidas a las playlists indicadas
-    await addTitlesToPlaylists(titulosSubidos, PLAYLISTS);
+    if (!DRY_RUN) {
+        await addTitlesToPlaylists(titulosSubidos, PLAYLISTS);
+    } else if (PLAYLISTS.length > 0) {
+        console.log(`[dry-run] Se añadirian ${titulosSubidos.length} titulo(s) a: ${PLAYLISTS.join(', ')}`);
+    }
 
     process.exit(0);
 }

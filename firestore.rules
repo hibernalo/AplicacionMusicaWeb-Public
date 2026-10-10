@@ -12,35 +12,53 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Documento del usuario autenticado (solo llamar si existe)
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userDocExists() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     // Funcion helper: verificar si es admin
     function isAdmin() {
-      return isAuthenticated() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      return userDocExists() && userData().isAdmin == true;
     }
 
-    // Canciones: lectura publica, escritura solo admin
+    // Funcion helper: usuario con permiso para subir canciones desde la web
+    // (campo `canUpload: true` en su documento, o admin)
+    function isUploader() {
+      return isAdmin() || (userDocExists() && userData().get('canUpload', false) == true);
+    }
+
+    // Canciones: lectura publica, crear uploaders/admin, modificar/borrar solo admin
     match /songs/{songId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isUploader();
+      allow update, delete: if isAdmin();
     }
 
-    // Generos: lectura publica, escritura solo admin
+    // Generos: lectura publica, crear uploaders/admin, modificar/borrar solo admin
     match /genres/{genreId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isUploader();
+      allow update, delete: if isAdmin();
     }
 
-    // Sources: lectura publica, escritura solo admin
+    // Sources: lectura publica, crear uploaders/admin, modificar/borrar solo admin
     match /sources/{sourceId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isUploader();
+      allow update, delete: if isAdmin();
     }
 
-    // Artistas: lectura publica, escritura solo admin
+    // Artistas: lectura publica, crear uploaders/admin, modificar/borrar solo admin
     match /artistas/{artistId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isUploader();
+      allow update, delete: if isAdmin();
     }
 
     // Years: lectura publica, escritura solo admin
@@ -49,16 +67,27 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Usuarios: solo el propio usuario puede leer/escribir su documento
+    // Usuarios: solo el propio usuario puede leer/escribir su documento.
+    // Los campos de permisos (isAdmin, canUpload) solo los puede poner un admin:
+    // el propio usuario no puede crearlos a true ni modificarlos.
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      // Solo admin puede modificar el campo isAdmin
+      allow create: if isOwner(userId) &&
+        request.resource.data.get('isAdmin', false) == false &&
+        request.resource.data.get('canUpload', false) == false;
+      allow update: if isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'canUpload']);
+      // Admin puede modificar cualquier campo (incluidos los permisos)
       allow update: if isAdmin();
 
       // Subcoleccion de likes: solo el propio usuario
       match /likes/{likeId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Estadísticas de escucha (tiempo escuchado por canción/artista/género/source):
+      // solo el propio usuario. Documentos: total | YYYY-MM | YYYY-MM-DD
+      match /listeningStats/{statsDocId} {
         allow read, write: if isOwner(userId);
       }
     }
